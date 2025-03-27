@@ -1,6 +1,7 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 
+CONF_ID = 'id'  # Add this line to define CONF_ID
 CONF_SERVER = 'server'
 CONF_USERNAME = 'username'
 CONF_PASSWORD = 'password'
@@ -20,6 +21,7 @@ def validate_remote_paths(value):
     return [cv.string(path) for path in value]
 
 CONFIG_SCHEMA = cv.Schema({
+    cv.Required(CONF_ID): cv.declare_id(FTPHTTPProxy),  # Declare the ID for the component
     cv.Required(CONF_SERVER): cv.string,
     cv.Required(CONF_USERNAME): cv.string,
     cv.Required(CONF_PASSWORD): cv.string,
