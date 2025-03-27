@@ -1,4 +1,5 @@
 #include "ftp_http_proxy.h"
+#include "../sd_mmc_card/sd_mmc_card.h"
 #include "esp_log.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
