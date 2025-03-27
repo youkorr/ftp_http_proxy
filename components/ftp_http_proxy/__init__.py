@@ -7,21 +7,23 @@ CONF_PASSWORD = 'password'
 CONF_REMOTE_PATHS = 'remote_paths'
 CONF_LOCAL_PORT = 'local_port'
 
-# Suppression des dépendances et auto_load liés au media_player
 DEPENDENCIES = []
 AUTO_LOAD = []
 
 ftp_http_proxy_ns = cg.esphome_ns.namespace('ftp_http_proxy')
 FTPHTTPProxy = ftp_http_proxy_ns.class_('FTPHTTPProxy', cg.Component)
 
+def validate_remote_paths(value):
+    # Vérification personnalisée pour les chemins distants
+    if not isinstance(value, list):
+        raise cv.Invalid("Remote paths must be a list of strings")
+    return [cv.string(path) for path in value]
+
 CONFIG_SCHEMA = cv.Schema({
     cv.Required(CONF_SERVER): cv.string,
     cv.Required(CONF_USERNAME): cv.string,
     cv.Required(CONF_PASSWORD): cv.string,
-    cv.Required(CONF_REMOTE_PATHS): cv.All(
-        cv.ensure_list,
-        [cv.string]
-    ),
+    cv.Required(CONF_REMOTE_PATHS): validate_remote_paths,
     cv.Optional(CONF_LOCAL_PORT, default=8000): cv.port,
 })
 
