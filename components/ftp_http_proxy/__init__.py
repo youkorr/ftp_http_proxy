@@ -12,7 +12,10 @@ CONFIG_SCHEMA = cv.Schema({
     cv.Required('server'): cv.string,
     cv.Required('username'): cv.string,
     cv.Required('password'): cv.string,
-    cv.Optional('remote_path', default='/'): cv.string,
+    cv.Required('remote_paths'): cv.All(
+        cv.ensure_list,
+        [cv.string]
+    ),
     cv.Optional('local_port', default=8000): cv.port,
 })
 
@@ -24,5 +27,9 @@ async def to_code(config):
     cg.add(var.set_ftp_server(config['server']))
     cg.add(var.set_username(config['username']))
     cg.add(var.set_password(config['password']))
-    cg.add(var.set_remote_path(config['remote_path']))
+    
+    # Ajout des chemins distants
+    for remote_path in config['remote_paths']:
+        cg.add(var.add_remote_path(remote_path))
+    
     cg.add(var.set_local_port(config['local_port']))
