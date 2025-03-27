@@ -1,6 +1,5 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.components import media_player
 
 CONF_SERVER = 'server'
 CONF_USERNAME = 'username'
@@ -8,19 +7,20 @@ CONF_PASSWORD = 'password'
 CONF_REMOTE_PATHS = 'remote_paths'
 CONF_LOCAL_PORT = 'local_port'
 
-DEPENDENCIES = ['media_player']
-AUTO_LOAD = ['media_player']
+# Suppression des dépendances et auto_load liés au media_player
+DEPENDENCIES = []
+AUTO_LOAD = []
 
 ftp_http_proxy_ns = cg.esphome_ns.namespace('ftp_http_proxy')
 FTPHTTPProxy = ftp_http_proxy_ns.class_('FTPHTTPProxy', cg.Component)
 
 CONFIG_SCHEMA = cv.Schema({
-    cv.Required(CONF_SERVER): cv.string,
-    cv.Required(CONF_USERNAME): cv.string,
-    cv.Required(CONF_PASSWORD): cv.string,
+    cv.Required(CONF_SERVER): cv.string_,
+    cv.Required(CONF_USERNAME): cv.string_,
+    cv.Required(CONF_PASSWORD): cv.string_,
     cv.Required(CONF_REMOTE_PATHS): cv.All(
         cv.ensure_list,
-        [cv.string]
+        [cv.string_]
     ),
     cv.Optional(CONF_LOCAL_PORT, default=8000): cv.port,
 })
