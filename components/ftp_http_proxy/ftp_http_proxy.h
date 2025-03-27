@@ -4,6 +4,7 @@
 #include "esphome/core/log.h"
 #include <vector>
 #include <string>
+#include "esp_http_server.h" // Ajout pour httpd_handle_t
 
 namespace esphome {
 namespace ftp_http_proxy {
@@ -35,14 +36,17 @@ class FTPHTTPProxy : public Component {
   // Port local pour le serveur HTTP
   uint16_t local_port_ = 8000;
 
+  // Serveur HTTP
+  httpd_handle_t http_server_; // Ajout de cette ligne
+
   // Méthodes privées
   bool download_ftp_file(const std::string& filename);
-  void handle_http_request();
+  void handle_http_request(httpd_req_t *req); // Correction de la signature
 
   // Recherche du chemin distant pour un fichier donné
   std::string find_remote_path_for_file(const std::string& filename);
 
-  // Serveur HTTP
+  // Démarrer le serveur HTTP
   void start_http_server();
 };
 
