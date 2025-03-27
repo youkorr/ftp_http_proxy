@@ -35,7 +35,7 @@ void FTPHTTPProxy::setup() {
 // Boucle principale
 void FTPHTTPProxy::loop() {
   // Gestion des requêtes HTTP entrantes
-  handle_http_request();
+  // Rien à faire ici car le serveur HTTP gère les requêtes via des callbacks
 }
 
 // Démarrer le serveur HTTP
