@@ -23,7 +23,36 @@ void FTPHTTPProxy::loop() {
   }
 }
 
+std::string FTPHTTPProxy::find_remote_path_for_file(const std::string& filename) {
+  // Parcourir tous les chemins distants pour trouver le bon chemin
+  for (const auto& path : remote_paths_) {
+    // Logique simple de recherche, à personnaliser selon vos besoins
+    // Par exemple, vérifier si le fichier existe dans ce chemin
+    WiFiClient ftp_client;
+    if (!ftp_client.connect(ftp_server_.c_str(), 21)) {
+      ESP_LOGE(TAG, "FTP connection failed");
+      continue;
+    }
+    
+    // Ici, vous devriez implémenter une vérification réelle 
+    // de l'existence du fichier dans le chemin distant
+    // Cette implémentation est un exemple simplifié
+    
+    return path;
+  }
+  
+  return ""; // Aucun chemin trouvé
+}
+
 bool FTPHTTPProxy::download_ftp_file(const std::string& filename) {
+  // Trouver le chemin distant correspondant
+  std::string remote_path = find_remote_path_for_file(filename);
+  
+  if (remote_path.empty()) {
+    ESP_LOGE(TAG, "No remote path found for file %s", filename.c_str());
+    return false;
+  }
+  
   // Implémentation du téléchargement FTP
   WiFiClient ftp_client;
   if (!ftp_client.connect(ftp_server_.c_str(), 21)) {
@@ -31,7 +60,7 @@ bool FTPHTTPProxy::download_ftp_file(const std::string& filename) {
     return false;
   }
   
-  // Authentification et téléchargement (à implémenter)
+  // Authentification et téléchargement (à implémenter complètement)
   // Exemple simplifié, nécessite une vraie implémentation FTP
   
   return true;
