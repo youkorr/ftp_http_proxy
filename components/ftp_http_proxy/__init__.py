@@ -15,12 +15,12 @@ ftp_http_proxy_ns = cg.esphome_ns.namespace('ftp_http_proxy')
 FTPHTTPProxy = ftp_http_proxy_ns.class_('FTPHTTPProxy', cg.Component)
 
 CONFIG_SCHEMA = cv.Schema({
-    cv.Required(CONF_SERVER): cv.string_,
-    cv.Required(CONF_USERNAME): cv.string_,
-    cv.Required(CONF_PASSWORD): cv.string_,
+    cv.Required(CONF_SERVER): cv.string,
+    cv.Required(CONF_USERNAME): cv.string,
+    cv.Required(CONF_PASSWORD): cv.string,
     cv.Required(CONF_REMOTE_PATHS): cv.All(
         cv.ensure_list,
-        [cv.string_]
+        [cv.string]
     ),
     cv.Optional(CONF_LOCAL_PORT, default=8000): cv.port,
 })
