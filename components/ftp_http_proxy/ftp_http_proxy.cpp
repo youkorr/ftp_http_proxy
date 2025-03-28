@@ -54,7 +54,7 @@ bool FTPHTTPProxy::connect_to_ftp() {
     struct sockaddr_in server_addr;
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(21);  // Port FTP standard
+    server_addr.sin_port = htons(ftp_port_);  // Utiliser le port FTP configuré
     memcpy(&server_addr.sin_addr, host->h_addr, host->h_length);
 
     // Configuration du timeout
@@ -256,7 +256,7 @@ bool FTPHTTPProxy::download_file(const std::string &remote_path, httpd_req_t *re
 void FTPHTTPProxy::setup_http_server() {
     // Configuration du serveur HTTP
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.server_port = local_port_;
+    config.server_port = local_port_; // Utiliser le port HTTP configuré
     config.max_uri_handlers = 10;  // Augmenter si nécessaire
     config.stack_size = 8192;  // Augmenter la taille de la pile si besoin
 
@@ -359,5 +359,6 @@ esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t *req) {
 
 }  // namespace ftp_http_proxy
 }  // namespace esphome
+
 
 
