@@ -11,7 +11,7 @@ static const char *TAG = "ftp_proxy";
 void FTPHTTPProxy::setup() {
     // Configuration initiale du composant
     ESP_LOGI(TAG, "Setting up FTP HTTP Proxy");
-
+    
     // Vérifier que les paramètres essentiels sont définis
     if (ftp_server_.empty() || username_.empty() || password_.empty()) {
         ESP_LOGE(TAG, "FTP server configuration incomplete");
@@ -150,7 +150,8 @@ bool FTPHTTPProxy::download_file(const std::string &remote_path, httpd_req_t *re
     }
 
     // Réception de la réponse PASV
-    ssize_t recv_len = lwip_recv(sock_, buffer, sizeof(buffer) - 1, 0);
+    ssize_t recv_len; // Déclaration de recv_len ici
+    recv_len = lwip_recv(sock_, buffer, sizeof(buffer) - 1, 0);
     if (recv_len <= 0) {
         ESP_LOGE(TAG, "No PASV response");
         lwip_close(sock_);
@@ -162,7 +163,7 @@ bool FTPHTTPProxy::download_file(const std::string &remote_path, httpd_req_t *re
     // Parsing de l'adresse IP et du port
     int ip[4], port[2];
     char *ptr = strchr(buffer, '(');
-    if (!ptr || sscanf(ptr, "(%d,%d,%d,%d,%d,%d)",
+    if (!ptr || sscanf(ptr, "(%d,%d,%d,%d,%d,%d)", 
                        &ip[0], &ip[1], &ip[2], &ip[3], &port[0], &port[1]) != 6) {
         ESP_LOGE(TAG, "Failed to parse PASV response");
         lwip_close(sock_);
@@ -206,7 +207,7 @@ bool FTPHTTPProxy::download_file(const std::string &remote_path, httpd_req_t *re
     }
 
     // Réception de la réponse RETR
-    ssize_t recv_len = lwip_recv(sock_, buffer, sizeof(buffer) - 1, 0);
+    recv_len = lwip_recv(sock_, buffer, sizeof(buffer) - 1, 0);
     if (recv_len <= 0 || strstr(buffer, "150") == nullptr) {
         ESP_LOGE(TAG, "File transfer not started");
         lwip_close(data_sock);
@@ -218,10 +219,10 @@ bool FTPHTTPProxy::download_file(const std::string &remote_path, httpd_req_t *re
     // Streaming du fichier
     std::vector<char> chunk(2048);
     size_t total_transferred = 0;
-
+    
     while (true) {
         ssize_t len = lwip_recv(data_sock, chunk.data(), chunk.size(), 0);
-
+        
         if (len > 0) {
             esp_err_t send_result = httpd_resp_send_chunk(req, chunk.data(), len);
             if (send_result != ESP_OK) {
@@ -242,7 +243,7 @@ bool FTPHTTPProxy::download_file(const std::string &remote_path, httpd_req_t *re
 
     // Fermeture des sockets
     lwip_close(data_sock);
-
+    
     // Commande QUIT
     snprintf(buffer, sizeof(buffer), "QUIT\r\n");
     lwip_send(sock_, buffer, strlen(buffer), 0);
