@@ -244,7 +244,20 @@ void FTPHTTPProxy::setup_http_server() {
   httpd_register_uri_handler(server_, &uri);
   ESP_LOGI(TAG, "HTTP server started on port %d", local_port_);
 }
+const void *FTPHTTPProxy::_vtable = nullptr;
 
+// Implémentation du destructeur
+FTPHTTPProxy::~FTPHTTPProxy() {
+  if (server_) {
+    httpd_stop(server_);
+  }
+  if (sock_ >= 0) {
+    lwip_close(sock_);
+  }
+}
+
+}  // namespace ftp_http_proxy
+}  // namespace esphome
 }  // namespace ftp_http_proxy
 }  // namespace esphome
 
