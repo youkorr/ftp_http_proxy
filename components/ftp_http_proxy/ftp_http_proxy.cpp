@@ -9,7 +9,7 @@ namespace ftp_http_proxy {
 static const char *TAG = "ftp_proxy";
 
 // Static utility method for removing quotes
-static std::string remove_quotes(const std::string& str) {
+std::string clean_allowed_path = FTPHTTPProxy::remove_quotes(allowed_path);
     if (str.length() >= 2 &&
         str.front() == '"' &&
         str.back() == '"') {
