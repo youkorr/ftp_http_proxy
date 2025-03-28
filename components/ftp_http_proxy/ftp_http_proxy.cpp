@@ -1,11 +1,14 @@
 #include "ftp_http_proxy.h"
 #include "esp_log.h"
 #include "esp_wifi.h"
+#include "esp_netif.h"
 #include "esp_event.h"
 #include "esp_http_server.h"
 #include "lwip/sockets.h"
 #include "esp_vfs_fat.h"
 #include "esp_spiffs.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 namespace esphome {
 namespace ftp_http_proxy {
@@ -15,11 +18,19 @@ static const char* TAG = "ftp_http_proxy";
 // Initialisation du proxy
 void FTPHTTPProxy::setup() {
   // Attendre la connexion Wi-Fi
-  while (WiFi.status() != WL_CONNECTED) {
+  esp_err_t wifi_status = ESP_FAIL;
+  while (wifi_status != ESP_OK) {
+    wifi_status = esp_wifi_connect();
     ESP_LOGI(TAG, "Waiting for Wi-Fi connection...");
-    delay(1000);
+    vTaskDelay(pdMS_TO_TICKS(1000)); // Remplace delay(1000)
   }
-  ESP_LOGI(TAG, "Wi-Fi connected. IP address: %s", WiFi.localIP().toString().c_str());
+
+  // Obtenir l'adresse IP
+  esp_netif_ip_info_t ip_info;
+  esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"), &ip_info);
+  char ip_address[16];
+  snprintf(ip_address, sizeof(ip_address), IPSTR, IP2STR(&ip_info.ip));
+  ESP_LOGI(TAG, "Wi-Fi connected. IP address: %s", ip_address);
 
   // Initialiser SPIFFS
   esp_vfs_spiffs_conf_t conf = {
@@ -136,15 +147,15 @@ bool FTPHTTPProxy::download_ftp_file(const std::string& filename) {
 
   // Étape 2 : Authentification FTP
   send(control_sock, ("USER " + username_ + "\r\n").c_str(), strlen(("USER " + username_ + "\r\n").c_str()), 0);
-  delay(500);
+  vTaskDelay(pdMS_TO_TICKS(500)); // Remplace delay(500)
   send(control_sock, ("PASS " + password_ + "\r\n").c_str(), strlen(("PASS " + password_ + "\r\n").c_str()), 0);
-  delay(500);
+  vTaskDelay(pdMS_TO_TICKS(500)); // Remplace delay(500)
 
   ESP_LOGD(TAG, "Authenticated. Sending PASV command...");
 
   // Étape 3 : Activer le mode passif (PASV)
   send(control_sock, "PASV\r\n", strlen("PASV\r\n"), 0);
-  delay(500);
+  vTaskDelay(pdMS_TO_TICKS(500)); // Remplace delay(500)
 
   // Lire la réponse du serveur après PASV
   char pasv_response[128];
@@ -194,7 +205,7 @@ bool FTPHTTPProxy::download_ftp_file(const std::string& filename) {
   // Étape 5 : Envoyer la commande RETR pour récupérer le fichier
   std::string retr_command = "RETR " + find_remote_path_for_file(filename) + "/" + filename + "\r\n";
   send(control_sock, retr_command.c_str(), strlen(retr_command.c_str()), 0);
-  delay(500);
+  vTaskDelay(pdMS_TO_TICKS(500)); // Remplace delay(500)
 
   // Étape 6 : Télécharger le fichier depuis la connexion de données
   FILE *file = fopen(("/spiffs/" + filename).c_str(), "w");
