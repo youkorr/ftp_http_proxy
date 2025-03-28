@@ -1,10 +1,10 @@
 #pragma once
 
 #include "esphome.h"
-#include <vector>
-#include <string>
 #include <esp_http_server.h>
 #include <lwip/sockets.h>
+#include <vector>
+#include <string>
 
 namespace esphome {
 namespace ftp_http_proxy {
@@ -31,7 +31,7 @@ class FTPHTTPProxy : public Component {
   int sock_{-1};
 
   bool connect_to_ftp();
-  bool download_file(const std::string &remote_path, std::string &content);
+  bool download_file(const std::string &remote_path, httpd_req_t *req);
   void setup_http_server();
   static esp_err_t http_req_handler(httpd_req_t *req);
 };
