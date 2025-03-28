@@ -7,6 +7,9 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include "esp_wifi.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 namespace esphome {
 namespace ftp_http_proxy {
@@ -20,21 +23,42 @@ static std::string remove_quotes(const std::string& str) {
   return str;
 }
 
-// Définition du constructeur sans liste d'initialisation
-// puisqu'elle semble déjà être en place dans le fichier .h
-FTPHTTPProxy::FTPHTTPProxy() {
-  // Toute initialisation nécessaire qui n'est pas dans .h
+FTPHTTPProxy::FTPHTTPProxy() : ftp_socket_(-1), server_(nullptr), setup_complete_(false) {
+  // Initialisation des valeurs par défaut
+  this->ftp_port_ = 21;
+  this->local_port_ = 80;
 }
 
 void FTPHTTPProxy::setup() {
+  // Vérifier si déjà configuré
+  if (setup_complete_) {
+    ESP_LOGW(TAG, "Setup already completed");
+    return;
+  }
+  
+  // Attendre que le WiFi soit connecté
+  if (wifi_sta_status() != WIFI_STA_CONNECTED) {
+    ESP_LOGW(TAG, "WiFi not connected yet, delaying HTTP server start");
+    // La configuration sera tentée à nouveau lors d'un appel ultérieur à setup()
+    return;
+  }
+  
+  // Attendre que la pile TCP/IP soit prête
+  vTaskDelay(pdMS_TO_TICKS(1000));
+  
   // Configuration du serveur HTTP
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = this->local_port_;
   config.uri_match_fn = httpd_uri_match_wildcard;
-
+  config.stack_size = 8192;  // Augmenter la taille de la pile
+  config.task_priority = tskIDLE_PRIORITY + 5;  // Priorité appropriée
+  config.core_id = 0;  // Exécuter sur le cœur 0 (si CPU double cœur)
+  config.lru_purge_enable = true;  // Activer la purge LRU pour éviter les fuites mémoire
+  
   ESP_LOGI(TAG, "Starting HTTP server on port %d", this->local_port_);
-  if (httpd_start(&server_, &config) != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to start HTTP server");
+  esp_err_t ret = httpd_start(&server_, &config);
+  if (ret != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to start HTTP server: %s", esp_err_to_name(ret));
     return;
   }
 
@@ -50,14 +74,29 @@ void FTPHTTPProxy::setup() {
     ESP_LOGE(TAG, "Failed to register URI handler");
     httpd_stop(server_);
     server_ = nullptr;
+    return;
+  }
+  
+  setup_complete_ = true;
+  ESP_LOGI(TAG, "HTTP server setup complete");
+}
+
+void FTPHTTPProxy::loop() {
+  // Si le serveur n'est pas encore configuré, essayer à nouveau
+  if (!setup_complete_) {
+    setup();
   }
 }
 
-// Ne pas redéfinir les méthodes qui sont définies comme inline dans le .h
-// Les méthodes suivantes ne doivent pas être redéfinies ici:
-// set_ftp_server, add_remote_path, set_local_port
+void FTPHTTPProxy::dump_config() {
+  ESP_LOGCONFIG(TAG, "FTP HTTP Proxy:");
+  ESP_LOGCONFIG(TAG, "  FTP Server: %s", this->ftp_server_.c_str());
+  ESP_LOGCONFIG(TAG, "  FTP Port: %d", this->ftp_port_);
+  ESP_LOGCONFIG(TAG, "  Local Port: %d", this->local_port_);
+  ESP_LOGCONFIG(TAG, "  Username: %s", this->username_.c_str());
+  ESP_LOGCONFIG(TAG, "  Configured Remote Paths: %d", this->remote_paths_.size());
+}
 
-// Définitions des méthodes manquantes dans le .h
 void FTPHTTPProxy::set_ftp_port(uint16_t port) {
   this->ftp_port_ = port;
 }
@@ -78,6 +117,13 @@ bool FTPHTTPProxy::connect_to_ftp() {
     ESP_LOGE(TAG, "Failed to create socket");
     return false;
   }
+
+  // Définir un délai d'attente pour le socket
+  struct timeval timeout;
+  timeout.tv_sec = 5;
+  timeout.tv_usec = 0;
+  setsockopt(ftp_socket_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+  setsockopt(ftp_socket_, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
 
   struct sockaddr_in server_addr;
   memset(&server_addr, 0, sizeof(server_addr));
@@ -100,6 +146,7 @@ bool FTPHTTPProxy::connect_to_ftp() {
 
   // Recevoir le message de bienvenue
   char response[1024];
+  memset(response, 0, sizeof(response));
   if (recv(ftp_socket_, response, sizeof(response) - 1, 0) <= 0) {
     ESP_LOGE(TAG, "No welcome message from FTP server");
     close(ftp_socket_);
@@ -233,6 +280,13 @@ bool FTPHTTPProxy::download_file(const std::string& remote_path, httpd_req_t* re
     return false;
   }
 
+  // Définir un délai d'attente pour le socket de données aussi
+  struct timeval timeout;
+  timeout.tv_sec = 5;
+  timeout.tv_usec = 0;
+  setsockopt(data_socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+  setsockopt(data_socket, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+
   struct sockaddr_in data_addr;
   memset(&data_addr, 0, sizeof(data_addr));
   data_addr.sin_family = AF_INET;
@@ -350,6 +404,14 @@ const char* FTPHTTPProxy::get_mime_type(const std::string& extension) {
   return "application/octet-stream";  // Type par défaut
 }
 
+wifi_sta_status_t FTPHTTPProxy::wifi_sta_status() {
+  wifi_ap_record_t info;
+  if (esp_wifi_sta_get_ap_info(&info) == ESP_OK) {
+    return WIFI_STA_CONNECTED;
+  }
+  return WIFI_STA_DISCONNECTED;
+}
+
 esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t* req) {
   FTPHTTPProxy* proxy = static_cast<FTPHTTPProxy*>(req->user_ctx);
   if (!proxy) {
@@ -394,4 +456,3 @@ esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t* req) {
 
 }  // namespace ftp_http_proxy
 }  // namespace esphome
-
