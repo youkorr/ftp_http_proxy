@@ -303,8 +303,11 @@ esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t *req) {
     // Log the extracted file path
     ESP_LOGI(TAG, "Extracted file path: %s", file_path);
 
-    // Sanitize the path (remove quotes if present)
-    std::string sanitized_path = remove_quotes(file_path);
+    // Sanitize the path (ensure leading '/' is present)
+    std::string sanitized_path = file_path;
+    if (sanitized_path.empty() || sanitized_path[0] != '/') {
+        sanitized_path = "/" + sanitized_path;
+    }
 
     // Log the sanitized path
     ESP_LOGI(TAG, "Sanitized file path: %s", sanitized_path.c_str());
@@ -315,13 +318,20 @@ esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t *req) {
         ESP_LOGI(TAG, "- %s", path.c_str());
     }
 
-    // Vérifier si le fichier est dans la liste des chemins autorisés
+    // Vérifier si le chemin est un sous-chemin des chemins autorisés
     bool path_allowed = false;
     for (const auto& allowed_path : proxy->remote_paths_) {
-        // Remove quotes from the allowed path for comparison
-        std::string clean_allowed_path = remove_quotes(allowed_path);
+        // Ensure the allowed path starts with '/'
+        std::string clean_allowed_path = allowed_path;
+        if (clean_allowed_path.empty() || clean_allowed_path[0] != '/') {
+            clean_allowed_path = "/" + clean_allowed_path;
+        }
 
-        if (clean_allowed_path == sanitized_path) {
+        // Supprimer les guillemets
+        clean_allowed_path = remove_quotes(clean_allowed_path);
+
+        // Vérifier si le chemin demandé commence par un chemin autorisé
+        if (sanitized_path.find(clean_allowed_path) == 0) {
             path_allowed = true;
             break;
         }
@@ -334,9 +344,12 @@ esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
 
+    // Supprimer le '/' initial pour le téléchargement FTP
+    std::string ftp_path = sanitized_path.substr(1);
+
     // Tentative de téléchargement du fichier
-    if (!proxy->download_file(sanitized_path, req)) {
-        ESP_LOGE(TAG, "Download failed for file: %s", sanitized_path.c_str());
+    if (!proxy->download_file(ftp_path, req)) {
+        ESP_LOGE(TAG, "Download failed for file: %s", ftp_path.c_str());
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Download failed");
         return ESP_FAIL;
     }
