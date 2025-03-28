@@ -8,6 +8,16 @@ namespace ftp_http_proxy {
 
 static const char *TAG = "ftp_proxy";
 
+// Static utility method for removing quotes
+static std::string remove_quotes(const std::string& str) {
+    if (str.length() >= 2 &&
+        str.front() == '"' &&
+        str.back() == '"') {
+        return str.substr(1, str.length() - 2);
+    }
+    return str;
+}
+
 void FTPHTTPProxy::setup() {
     // Validation des paramètres de configuration
     if (ftp_server_.empty()) {
@@ -33,7 +43,7 @@ void FTPHTTPProxy::setup() {
     // Affichage des chemins autorisés avec gestion des guillemets
     ESP_LOGI(TAG, "Allowed Remote Paths:");
     for (const auto& path : remote_paths_) {
-        std::string clean_path = remove_quotes(path);
+        std::string clean_path = ::remove_quotes(path);
         ESP_LOGI(TAG, "- %s", clean_path.c_str());
     }
 
@@ -276,13 +286,11 @@ bool FTPHTTPProxy::download_file(const std::string &remote_path, httpd_req_t *re
     return total_transferred > 0;
 }
 
-// Fonction utilitaire pour obtenir l'extension du fichier
 std::string FTPHTTPProxy::get_file_extension(const std::string& filename) {
     size_t pos = filename.find_last_of('.');
     return (pos != std::string::npos) ? filename.substr(pos + 1) : "";
 }
 
-// Fonction utilitaire pour déterminer le type MIME
 const char* FTPHTTPProxy::get_mime_type(const std::string& extension) {
     if (extension == "png") return "image/png";
     if (extension == "jpg" || extension == "jpeg") return "image/jpeg";
@@ -323,16 +331,6 @@ void FTPHTTPProxy::setup_http_server() {
     }
 }
 
-// Fonction utilitaire pour supprimer les guillemets
-std::string FTPHTTPProxy::remove_quotes(const std::string& str) {
-    if (str.length() >= 2 &&
-        str.front() == '"' &&
-        str.back() == '"') {
-        return str.substr(1, str.length() - 2);
-    }
-    return str;
-}
-
 esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t *req) {
     // Récupération du contexte
     FTPHTTPProxy* proxy = static_cast<FTPHTTPProxy*>(req->user_ctx);
@@ -358,7 +356,7 @@ esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t *req) {
     // Vérification des chemins autorisés
     bool path_allowed = false;
     for (const auto& allowed_path : proxy->remote_paths_) {
-        std::string clean_allowed_path = remove_quotes(allowed_path);
+        std::string clean_allowed_path = ::remove_quotes(allowed_path);
         
         // Vérifier si le chemin demandé correspond ou est un sous-chemin
         if (sanitized_path.find(clean_allowed_path) == 0) {
