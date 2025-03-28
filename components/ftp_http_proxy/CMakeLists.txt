@@ -10,3 +10,7 @@ set(COMPONENT_REQUIRES
 set(COMPONENT_PRIV_REQUIRES 
     esp_http_server
 )
+# Additional includes
+set(COMPONENT_ADD_INCLUDEDIRS 
+    .
+)
