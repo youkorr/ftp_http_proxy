@@ -1,6 +1,7 @@
 #include "ftp_http_proxy.h"
 #include "esp_log.h"
 #include <cstring>
+#include <algorithm>
 
 namespace esphome {
 namespace ftp_http_proxy {
@@ -17,9 +18,10 @@ void FTPHTTPProxy::setup() {
         return;
     }
 
-    // Exemple de chemins autorisés (à personnaliser)
-    if (remote_paths_.empty()) {
-        ESP_LOGW(TAG, "No allowed paths configured. Add paths using add_allowed_path()");
+    // Log des chemins autorisés
+    ESP_LOGI(TAG, "Allowed remote paths:");
+    for (const auto& path : remote_paths_) {
+        ESP_LOGI(TAG, "- %s", path.c_str());
     }
 
     // Configurer le serveur HTTP
@@ -279,6 +281,16 @@ void FTPHTTPProxy::setup_http_server() {
     }
 }
 
+// Fonction utilitaire pour supprimer les guillemets
+std::string remove_quotes(const std::string& str) {
+    if (str.length() >= 2 && 
+        str.front() == '"' && 
+        str.back() == '"') {
+        return str.substr(1, str.length() - 2);
+    }
+    return str;
+}
+
 esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t *req) {
     // Log the full URI for debugging
     ESP_LOGI(TAG, "Received URI: %s", req->uri);
@@ -304,6 +316,12 @@ esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t *req) {
     // Log the extracted file path
     ESP_LOGI(TAG, "Extracted file path: %s", file_path);
 
+    // Sanitize the path (remove quotes if present)
+    std::string sanitized_path = remove_quotes(file_path);
+
+    // Log the sanitized path
+    ESP_LOGI(TAG, "Sanitized file path: %s", sanitized_path.c_str());
+
     // Log the list of allowed remote paths
     ESP_LOGI(TAG, "Allowed remote paths:");
     for (const auto& path : proxy->remote_paths_) {
@@ -311,16 +329,27 @@ esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t *req) {
     }
 
     // Vérifier si le fichier est dans la liste des chemins autorisés
-    auto it = std::find(proxy->remote_paths_.begin(), proxy->remote_paths_.end(), file_path);
-    if (it == proxy->remote_paths_.end()) {
-        ESP_LOGE(TAG, "File path not found in allowed paths: %s", file_path);
+    bool path_allowed = false;
+    for (const auto& allowed_path : proxy->remote_paths_) {
+        // Remove quotes from the allowed path for comparison
+        std::string clean_allowed_path = remove_quotes(allowed_path);
+        
+        if (clean_allowed_path == sanitized_path) {
+            path_allowed = true;
+            break;
+        }
+    }
+
+    // Si le chemin n'est pas autorisé, renvoyer une erreur
+    if (!path_allowed) {
+        ESP_LOGE(TAG, "File path not found in allowed paths: %s", sanitized_path.c_str());
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "File not allowed");
         return ESP_FAIL;
     }
 
     // Tentative de téléchargement du fichier
-    if (!proxy->download_file(file_path, req)) {
-        ESP_LOGE(TAG, "Download failed for file: %s", file_path);
+    if (!proxy->download_file(sanitized_path, req)) {
+        ESP_LOGE(TAG, "Download failed for file: %s", sanitized_path.c_str());
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Download failed");
         return ESP_FAIL;
     }
