@@ -11,7 +11,7 @@ static const char *TAG = "ftp_proxy";
 void FTPHTTPProxy::setup() {
     // Configuration initiale du composant
     ESP_LOGI(TAG, "Setting up FTP HTTP Proxy");
-    
+
     // Vérifier que les paramètres essentiels sont définis
     if (ftp_server_.empty() || username_.empty() || password_.empty()) {
         ESP_LOGE(TAG, "FTP server configuration incomplete");
@@ -162,7 +162,7 @@ bool FTPHTTPProxy::download_file(const std::string &remote_path, httpd_req_t *re
     // Parsing de l'adresse IP et du port
     int ip[4], port[2];
     char *ptr = strchr(buffer, '(');
-    if (!ptr || sscanf(ptr, "(%d,%d,%d,%d,%d,%d)", 
+    if (!ptr || sscanf(ptr, "(%d,%d,%d,%d,%d,%d)",
                        &ip[0], &ip[1], &ip[2], &ip[3], &port[0], &port[1]) != 6) {
         ESP_LOGE(TAG, "Failed to parse PASV response");
         lwip_close(sock_);
@@ -206,7 +206,7 @@ bool FTPHTTPProxy::download_file(const std::string &remote_path, httpd_req_t *re
     }
 
     // Réception de la réponse RETR
-    recv_len = lwip_recv(sock_, buffer, sizeof(buffer) - 1, 0);
+    ssize_t recv_len = lwip_recv(sock_, buffer, sizeof(buffer) - 1, 0);
     if (recv_len <= 0 || strstr(buffer, "150") == nullptr) {
         ESP_LOGE(TAG, "File transfer not started");
         lwip_close(data_sock);
@@ -218,10 +218,10 @@ bool FTPHTTPProxy::download_file(const std::string &remote_path, httpd_req_t *re
     // Streaming du fichier
     std::vector<char> chunk(2048);
     size_t total_transferred = 0;
-    
+
     while (true) {
         ssize_t len = lwip_recv(data_sock, chunk.data(), chunk.size(), 0);
-        
+
         if (len > 0) {
             esp_err_t send_result = httpd_resp_send_chunk(req, chunk.data(), len);
             if (send_result != ESP_OK) {
@@ -242,7 +242,7 @@ bool FTPHTTPProxy::download_file(const std::string &remote_path, httpd_req_t *re
 
     // Fermeture des sockets
     lwip_close(data_sock);
-    
+
     // Commande QUIT
     snprintf(buffer, sizeof(buffer), "QUIT\r\n");
     lwip_send(sock_, buffer, strlen(buffer), 0);
@@ -268,12 +268,12 @@ void FTPHTTPProxy::setup_http_server() {
 
     // Configuration du gestionnaire de requêtes
     httpd_uri_t uri_handler = {
-        .uri       = "/*", // Modifier ici pour correspondre à la racine
+        .uri       = "/*",  // Écouter toutes les URIs
         .method    = HTTP_GET,
         .handler   = http_req_handler,
         .user_ctx  = this
     };
-    
+
     esp_err_t handler_result = httpd_register_uri_handler(server_, &uri_handler);
     if (handler_result != ESP_OK) {
         ESP_LOGE(TAG, "Failed to register URI handler. Error: %s", esp_err_to_name(handler_result));
@@ -282,8 +282,8 @@ void FTPHTTPProxy::setup_http_server() {
 
 // Fonction utilitaire pour supprimer les guillemets
 std::string remove_quotes(const std::string& str) {
-    if (str.length() >= 2 && 
-        str.front() == '"' && 
+    if (str.length() >= 2 &&
+        str.front() == '"' &&
         str.back() == '"') {
         return str.substr(1, str.length() - 2);
     }
@@ -293,10 +293,10 @@ std::string remove_quotes(const std::string& str) {
 esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t *req) {
     // Log the full URI for debugging
     ESP_LOGI(TAG, "Received URI: %s", req->uri);
-    
+
     // Récupération du contexte
     FTPHTTPProxy* proxy = static_cast<FTPHTTPProxy*>(req->user_ctx);
-    
+
     // Extraction du chemin de fichier à partir de l'URI
     const char* file_path = req->uri;
 
@@ -320,7 +320,7 @@ esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t *req) {
     for (const auto& allowed_path : proxy->remote_paths_) {
         // Remove quotes from the allowed path for comparison
         std::string clean_allowed_path = remove_quotes(allowed_path);
-        
+
         if (clean_allowed_path == sanitized_path) {
             path_allowed = true;
             break;
