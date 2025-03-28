@@ -2,10 +2,10 @@
 #include "esp_log.h"
 #include <cstring>
 
-static const char *TAG = "ftp_proxy";
-
 namespace esphome {
 namespace ftp_http_proxy {
+
+static const char *TAG = "ftp_proxy";
 
 void FTPHTTPProxy::setup() {
     // Configuration initiale du composant
@@ -15,6 +15,11 @@ void FTPHTTPProxy::setup() {
     if (ftp_server_.empty() || username_.empty() || password_.empty()) {
         ESP_LOGE(TAG, "FTP server configuration incomplete");
         return;
+    }
+
+    // Exemple de chemins autorisés (à personnaliser)
+    if (remote_paths_.empty()) {
+        ESP_LOGW(TAG, "No allowed paths configured. Add paths using add_allowed_path()");
     }
 
     // Configurer le serveur HTTP
@@ -250,10 +255,13 @@ void FTPHTTPProxy::setup_http_server() {
     // Configuration du serveur HTTP
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = local_port_;
+    config.max_uri_handlers = 10;  // Augmenter si nécessaire
+    config.stack_size = 8192;  // Augmenter la taille de la pile si besoin
 
     // Démarrage du serveur
-    if (httpd_start(&server_, &config) != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to start HTTP server");
+    esp_err_t start_result = httpd_start(&server_, &config);
+    if (start_result != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start HTTP server. Error: %s", esp_err_to_name(start_result));
         return;
     }
 
@@ -264,26 +272,55 @@ void FTPHTTPProxy::setup_http_server() {
         .handler   = http_req_handler,
         .user_ctx  = this
     };
-    httpd_register_uri_handler(server_, &uri_handler);
+    
+    esp_err_t handler_result = httpd_register_uri_handler(server_, &uri_handler);
+    if (handler_result != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to register URI handler. Error: %s", esp_err_to_name(handler_result));
+    }
 }
 
 esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t *req) {
+    // Log the full URI for debugging
+    ESP_LOGI(TAG, "Received URI: %s", req->uri);
+    
     // Récupération du contexte
     FTPHTTPProxy* proxy = static_cast<FTPHTTPProxy*>(req->user_ctx);
     
+    // More robust path extraction
+    const char* download_prefix = "/download/";
+    size_t prefix_len = strlen(download_prefix);
+    
+    // Check if URI starts with the expected prefix
+    if (strncmp(req->uri, download_prefix, prefix_len) != 0) {
+        ESP_LOGE(TAG, "URI does not start with %s. Actual URI: %s", download_prefix, req->uri);
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid URI format");
+        return ESP_FAIL;
+    }
+
     // Extraction du chemin de fichier à partir de l'URI
     char file_path[256];
-    strlcpy(file_path, req->uri + 10, sizeof(file_path));  // Sauter "/download/"
+    strlcpy(file_path, req->uri + prefix_len, sizeof(file_path));
+
+    // Log the extracted file path
+    ESP_LOGI(TAG, "Extracted file path: %s", file_path);
+
+    // Log the list of allowed remote paths
+    ESP_LOGI(TAG, "Allowed remote paths:");
+    for (const auto& path : proxy->remote_paths_) {
+        ESP_LOGI(TAG, "- %s", path.c_str());
+    }
 
     // Vérifier si le fichier est dans la liste des chemins autorisés
     auto it = std::find(proxy->remote_paths_.begin(), proxy->remote_paths_.end(), file_path);
     if (it == proxy->remote_paths_.end()) {
+        ESP_LOGE(TAG, "File path not found in allowed paths: %s", file_path);
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "File not allowed");
         return ESP_FAIL;
     }
 
     // Tentative de téléchargement du fichier
     if (!proxy->download_file(file_path, req)) {
+        ESP_LOGE(TAG, "Download failed for file: %s", file_path);
         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Download failed");
         return ESP_FAIL;
     }
