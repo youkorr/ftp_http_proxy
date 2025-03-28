@@ -150,8 +150,7 @@ bool FTPHTTPProxy::download_file(const std::string &remote_path, httpd_req_t *re
     }
 
     // Réception de la réponse PASV
-    ssize_t recv_len; // Déclaration de recv_len ici
-    recv_len = lwip_recv(sock_, buffer, sizeof(buffer) - 1, 0);
+    ssize_t recv_len = lwip_recv(sock_, buffer, sizeof(buffer) - 1, 0);
     if (recv_len <= 0) {
         ESP_LOGE(TAG, "No PASV response");
         lwip_close(sock_);
@@ -347,6 +346,7 @@ esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t *req) {
 
 }  // namespace ftp_http_proxy
 }  // namespace esphome
+
 
 
 
