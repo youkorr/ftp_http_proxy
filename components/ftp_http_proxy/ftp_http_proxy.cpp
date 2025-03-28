@@ -1,6 +1,5 @@
 #include "ftp_http_proxy.h"
 #include "esp_log.h"
-#include "esp_heap_caps.h"
 #include <lwip/netdb.h>
 #include <cstring>
 
@@ -15,103 +14,111 @@ void FTPHTTPProxy::setup() {
 }
 
 void FTPHTTPProxy::loop() {
-  // Maintenance if needed
+  // Maintenance tasks can be added here if needed
 }
 
 bool FTPHTTPProxy::connect_to_ftp() {
-  ESP_LOGD(TAG, "Connecting to FTP server...");
-
   struct sockaddr_in server_addr;
   memset(&server_addr, 0, sizeof(server_addr));
   server_addr.sin_family = AF_INET;
   server_addr.sin_port = htons(21);
 
-  // Résolution DNS simple
-  struct hostent *ftp_host = lwip_gethostbyname(ftp_server_.c_str());
+  // DNS resolution
+  struct hostent *ftp_host = gethostbyname(ftp_server_.c_str());
   if (!ftp_host) {
     ESP_LOGE(TAG, "DNS lookup failed");
     return false;
   }
-  server_addr.sin_addr.s_addr = *((unsigned long *)ftp_host->h_addr);
+  memcpy(&server_addr.sin_addr.s_addr, ftp_host->h_addr, ftp_host->h_length);
 
-  sock_ = lwip_socket(AF_INET, SOCK_STREAM, 0);
+  sock_ = socket(AF_INET, SOCK_STREAM, 0);
   if (sock_ < 0) {
     ESP_LOGE(TAG, "Socket creation failed");
     return false;
   }
 
-  // Configuration des timeouts
+  // Set timeouts
   struct timeval tv;
   tv.tv_sec = 10;
   tv.tv_usec = 0;
-  lwip_setsockopt(sock_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-  lwip_setsockopt(sock_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+  setsockopt(sock_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+  setsockopt(sock_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
-  if (lwip_connect(sock_, (struct sockaddr *)&server_addr, sizeof(server_addr)) != 0) {
+  if (connect(sock_, (struct sockaddr *)&server_addr, sizeof(server_addr)) != 0) {
     ESP_LOGE(TAG, "Connection failed");
-    lwip_close(sock_);
+    close(sock_);
     sock_ = -1;
     return false;
   }
 
   char buffer[128];
-  int len = lwip_recv(sock_, buffer, sizeof(buffer) - 1, 0);
+  int len = recv(sock_, buffer, sizeof(buffer) - 1, 0);
   if (len <= 0 || !strstr(buffer, "220 ")) {
     ESP_LOGE(TAG, "Invalid FTP welcome");
-    lwip_close(sock_);
+    close(sock_);
     sock_ = -1;
     return false;
   }
 
-  // Authentification
-  const char *commands[] = {
-    "USER", username_.c_str(),
-    "PASS", password_.c_str(),
-    "TYPE I", NULL
-  };
-
-  for (int i = 0; commands[i] != NULL; i += 2) {
-    snprintf(buffer, sizeof(buffer), "%s %s\r\n", commands[i], commands[i+1]);
-    if (lwip_send(sock_, buffer, strlen(buffer), 0) < 0) {
-      ESP_LOGE(TAG, "Failed to send %s", commands[i]);
-      lwip_close(sock_);
-      sock_ = -1;
-      return false;
-    }
-
-    len = lwip_recv(sock_, buffer, sizeof(buffer) - 1, 0);
-    if (len <= 0) {
-      ESP_LOGE(TAG, "No response to %s", commands[i]);
-      lwip_close(sock_);
-      sock_ = -1;
-      return false;
-    }
-    buffer[len] = '\0';
+  // Authentication
+  snprintf(buffer, sizeof(buffer), "USER %s\r\n", username_.c_str());
+  if (send(sock_, buffer, strlen(buffer), 0) < 0) {
+    ESP_LOGE(TAG, "Failed to send USER");
+    close(sock_);
+    sock_ = -1;
+    return false;
   }
+
+  len = recv(sock_, buffer, sizeof(buffer) - 1, 0);
+  if (len <= 0 || !strstr(buffer, "331 ")) {
+    ESP_LOGE(TAG, "USER command failed");
+    close(sock_);
+    sock_ = -1;
+    return false;
+  }
+
+  snprintf(buffer, sizeof(buffer), "PASS %s\r\n", password_.c_str());
+  if (send(sock_, buffer, strlen(buffer), 0) < 0) {
+    ESP_LOGE(TAG, "Failed to send PASS");
+    close(sock_);
+    sock_ = -1;
+    return false;
+  }
+
+  len = recv(sock_, buffer, sizeof(buffer) - 1, 0);
+  if (len <= 0 || !strstr(buffer, "230 ")) {
+    ESP_LOGE(TAG, "Login failed");
+    close(sock_);
+    sock_ = -1;
+    return false;
+  }
+
+  // Set binary mode
+  snprintf(buffer, sizeof(buffer), "TYPE I\r\n");
+  send(sock_, buffer, strlen(buffer), 0);
+  recv(sock_, buffer, sizeof(buffer) - 1, 0);
 
   return true;
 }
 
 bool FTPHTTPProxy::download_file(const std::string &remote_path, httpd_req_t *req) {
-  ESP_LOGD(TAG, "Starting download of %s", remote_path.c_str());
-
   if (!connect_to_ftp()) {
     return false;
   }
 
   char buffer[256];
   snprintf(buffer, sizeof(buffer), "PASV\r\n");
-  if (lwip_send(sock_, buffer, strlen(buffer), 0) < 0) {
+  if (send(sock_, buffer, strlen(buffer), 0) < 0) {
     ESP_LOGE(TAG, "Failed to send PASV");
-    lwip_close(sock_);
+    close(sock_);
     sock_ = -1;
     return false;
   }
 
-  int len = lwip_recv(sock_, buffer, sizeof(buffer) - 1, 0);
+  int len = recv(sock_, buffer, sizeof(buffer) - 1, 0);
   if (len <= 0 || !strstr(buffer, "227 ")) {
-    ESP_LOGE(TAG, "Invalid PASV response");
-    lwip_close(sock_);
+    ESP_LOGE(TAG, "PASV failed");
+    close(sock_);
     sock_ = -1;
     return false;
   }
@@ -121,16 +128,16 @@ bool FTPHTTPProxy::download_file(const std::string &remote_path, httpd_req_t *re
   char *ptr = strchr(buffer, '(');
   if (!ptr || sscanf(ptr, "(%d,%d,%d,%d,%d,%d)", &ip[0], &ip[1], &ip[2], &ip[3], &port[0], &port[1]) != 6) {
     ESP_LOGE(TAG, "Failed to parse PASV");
-    lwip_close(sock_);
+    close(sock_);
     sock_ = -1;
     return false;
   }
 
-  // Data connection
-  int data_sock = lwip_socket(AF_INET, SOCK_STREAM, 0);
+  // Create data connection
+  int data_sock = socket(AF_INET, SOCK_STREAM, 0);
   if (data_sock < 0) {
     ESP_LOGE(TAG, "Data socket failed");
-    lwip_close(sock_);
+    close(sock_);
     sock_ = -1;
     return false;
   }
@@ -141,29 +148,29 @@ bool FTPHTTPProxy::download_file(const std::string &remote_path, httpd_req_t *re
   data_addr.sin_port = htons(port[0] * 256 + port[1]);
   data_addr.sin_addr.s_addr = htonl((ip[0] << 24) | (ip[1] << 16) | (ip[2] << 8) | ip[3]);
 
-  if (lwip_connect(data_sock, (struct sockaddr *)&data_addr, sizeof(data_addr)) != 0) {
+  if (connect(data_sock, (struct sockaddr *)&data_addr, sizeof(data_addr)) != 0) {
     ESP_LOGE(TAG, "Data connect failed");
-    lwip_close(data_sock);
-    lwip_close(sock_);
+    close(data_sock);
+    close(sock_);
     sock_ = -1;
     return false;
   }
 
   // Request file
   snprintf(buffer, sizeof(buffer), "RETR %s\r\n", remote_path.c_str());
-  if (lwip_send(sock_, buffer, strlen(buffer), 0) < 0) {
+  if (send(sock_, buffer, strlen(buffer), 0) < 0) {
     ESP_LOGE(TAG, "Failed to send RETR");
-    lwip_close(data_sock);
-    lwip_close(sock_);
+    close(data_sock);
+    close(sock_);
     sock_ = -1;
     return false;
   }
 
-  len = lwip_recv(sock_, buffer, sizeof(buffer) - 1, 0);
+  len = recv(sock_, buffer, sizeof(buffer) - 1, 0);
   if (len <= 0 || !strstr(buffer, "150 ")) {
     ESP_LOGE(TAG, "Transfer not started");
-    lwip_close(data_sock);
-    lwip_close(sock_);
+    close(data_sock);
+    close(sock_);
     sock_ = -1;
     return false;
   }
@@ -175,7 +182,7 @@ bool FTPHTTPProxy::download_file(const std::string &remote_path, httpd_req_t *re
   char chunk[2048];
   size_t total = 0;
   while (true) {
-    len = lwip_recv(data_sock, chunk, sizeof(chunk), 0);
+    len = recv(data_sock, chunk, sizeof(chunk), 0);
     if (len <= 0) break;
 
     if (httpd_resp_send_chunk(req, chunk, len) != ESP_OK) {
@@ -186,15 +193,15 @@ bool FTPHTTPProxy::download_file(const std::string &remote_path, httpd_req_t *re
   }
 
   httpd_resp_send_chunk(req, NULL, 0);
-  lwip_close(data_sock);
+  close(data_sock);
 
   // Verify transfer completion
-  lwip_recv(sock_, buffer, sizeof(buffer) - 1, 0);
-  lwip_send(sock_, "QUIT\r\n", 6, 0);
-  lwip_close(sock_);
+  recv(sock_, buffer, sizeof(buffer) - 1, 0);
+  send(sock_, "QUIT\r\n", 6, 0);
+  close(sock_);
   sock_ = -1;
 
-  ESP_LOGI(TAG, "Transferred %d bytes", total);
+  ESP_LOGI(TAG, "Transferred %zu bytes", total);
   return total > 0;
 }
 
@@ -202,7 +209,7 @@ esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t *req) {
   auto *proxy = (FTPHTTPProxy *)req->user_ctx;
   std::string path = req->uri;
 
-  // Normalize path
+  // Remove leading slash
   if (path.size() > 1 && path[0] == '/') {
     path = path.substr(1);
   }
@@ -211,7 +218,6 @@ esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t *req) {
 
   for (const auto &rp : proxy->remote_paths_) {
     if (path == rp) {
-      ESP_LOGI(TAG, "Processing file: %s", rp.c_str());
       if (proxy->download_file(rp, req)) {
         return ESP_OK;
       }
@@ -219,7 +225,6 @@ esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t *req) {
     }
   }
 
-  ESP_LOGE(TAG, "File not found: %s", path.c_str());
   httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
   return ESP_FAIL;
 }
@@ -244,20 +249,7 @@ void FTPHTTPProxy::setup_http_server() {
   httpd_register_uri_handler(server_, &uri);
   ESP_LOGI(TAG, "HTTP server started on port %d", local_port_);
 }
-const void *FTPHTTPProxy::_vtable = nullptr;
 
-// Implémentation du destructeur
-FTPHTTPProxy::~FTPHTTPProxy() {
-  if (server_) {
-    httpd_stop(server_);
-  }
-  if (sock_ >= 0) {
-    lwip_close(sock_);
-  }
-}
-
-}  // namespace ftp_http_proxy
-}  // namespace esphome
 }  // namespace ftp_http_proxy
 }  // namespace esphome
 
