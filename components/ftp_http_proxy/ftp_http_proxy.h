@@ -42,3 +42,4 @@ class FTPHTTPProxy : public Component {
 }  // namespace ftp_http_proxy
 }  // namespace esphome
 
+
