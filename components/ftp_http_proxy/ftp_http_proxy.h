@@ -3,6 +3,7 @@
 #include "esphome.h"
 #include <esp_http_server.h>
 #include <lwip/sockets.h>
+#include <netdb.h>
 #include <vector>
 #include <string>
 
@@ -38,3 +39,4 @@ class FTPHTTPProxy : public Component {
 
 }  // namespace ftp_http_proxy
 }  // namespace esphome
+
