@@ -1,7 +1,6 @@
 #pragma once
 
-#include "esphome/components/component.h"
-#include "esphome/core/component.h"
+#include "esphome.h"  // Inclure le header principal d'ESPHome
 #include <vector>
 #include <string>
 #include <esp_http_server.h>
@@ -36,6 +35,9 @@ class FTPHTTPProxy : public Component {
   void setup_http_server();
   static esp_err_t http_req_handler(httpd_req_t *req);
 };
+
+}  // namespace ftp_http_proxy
+}  // namespace esphome
 
 }  // namespace ftp_http_proxy
 }  // namespace esphome
