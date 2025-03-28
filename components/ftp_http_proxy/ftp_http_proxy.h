@@ -37,7 +37,7 @@ class FTPHTTPProxy : public Component {
   bool authenticate_ftp();
   std::string get_file_extension(const std::string& filename);
   const char* get_mime_type(const std::string& extension);
-  std::string remove_quotes(const std::string& str);
+  static std::string remove_quotes(const std::string& str);
 
   bool connect_to_ftp();
   bool download_file(const std::string &remote_path, httpd_req_t *req);
