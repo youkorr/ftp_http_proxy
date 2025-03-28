@@ -21,14 +21,8 @@ class FTPHTTPProxy : public Component {
   void loop() override;
   float get_setup_priority() const override { return esphome::setup_priority::AFTER_WIFI; }
 
-  ~FTPHTTPProxy() override {
-    if (server_) {
-      httpd_stop(server_);
-    }
-    if (sock_ >= 0) {
-      close(sock_);
-    }
-  }
+  // Déclaration correcte du destructeur
+  ~FTPHTTPProxy();
 
  protected:
   std::string ftp_server_;
