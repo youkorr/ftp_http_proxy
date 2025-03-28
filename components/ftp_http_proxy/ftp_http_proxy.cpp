@@ -2,6 +2,7 @@
 #include "esp_log.h"
 #include "esp_http_server.h"
 #include "lwip/sockets.h"
+#include "../sd_mmc_card/sd_mmc_card.h"
 
 static const char *TAG = "ftp_http_proxy";
 
