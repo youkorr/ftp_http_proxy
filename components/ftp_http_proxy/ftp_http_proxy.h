@@ -17,6 +17,7 @@ class FTPHTTPProxy : public Component {
   void set_password(const std::string &password) { password_ = password; }
   void add_remote_path(const std::string &path) { remote_paths_.push_back(path); }
   void set_local_port(uint16_t port) { local_port_ = port; }
+  void set_ftp_port(uint16_t port) { ftp_port_ = port; }  // Ajout du setter pour ftp_port_
 
   void setup() override;
   void loop() override;
@@ -28,6 +29,7 @@ class FTPHTTPProxy : public Component {
   std::string password_;
   std::vector<std::string> remote_paths_;
   uint16_t local_port_{8000};
+  uint16_t ftp_port_{21}; // Ajout de la variable ftp_port_ avec une valeur par défaut
   httpd_handle_t server_{nullptr};
   int sock_{-1};
 
