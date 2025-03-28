@@ -17,9 +17,13 @@ class FTPHTTPProxy : public Component {
   void add_remote_path(const std::string &path) { remote_paths_.push_back(path); }
   void set_local_port(uint16_t port) { local_port_ = port; }
 
+  // Déclaration explicite des méthodes virtuelles
   void setup() override;
   void loop() override;
   float get_setup_priority() const override { return esphome::setup_priority::AFTER_WIFI; }
+
+  // Déstructeur explicite
+  ~FTPHTTPProxy() override;
 
  protected:
   std::string ftp_server_;
