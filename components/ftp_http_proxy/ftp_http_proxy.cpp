@@ -248,7 +248,6 @@ bool FTPHTTPProxy::download_file(const std::string &remote_path, httpd_req_t *re
     lwip_send(sock_, buffer, strlen(buffer), 0);
     lwip_close(sock_);
     sock_ = -1;
-
     ESP_LOGI(TAG, "Transferred %d bytes", total_transferred);
     return total_transferred > 0;
 }
@@ -256,7 +255,7 @@ bool FTPHTTPProxy::download_file(const std::string &remote_path, httpd_req_t *re
 void FTPHTTPProxy::setup_http_server() {
     // Configuration du serveur HTTP
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.server_port = local_port_; // Utiliser le port HTTP configuré
+    config.server_port = local_port_;
     config.max_uri_handlers = 10;  // Augmenter si nécessaire
     config.stack_size = 8192;  // Augmenter la taille de la pile si besoin
 
@@ -269,7 +268,7 @@ void FTPHTTPProxy::setup_http_server() {
 
     // Configuration du gestionnaire de requêtes
     httpd_uri_t uri_handler = {
-        .uri       = "/download/*",
+        .uri       = "/*", // Modifier ici pour correspondre à la racine
         .method    = HTTP_GET,
         .handler   = http_req_handler,
         .user_ctx  = this
@@ -298,20 +297,8 @@ esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t *req) {
     // Récupération du contexte
     FTPHTTPProxy* proxy = static_cast<FTPHTTPProxy*>(req->user_ctx);
     
-    // More robust path extraction
-    const char* download_prefix = "/download/";
-    size_t prefix_len = strlen(download_prefix);
-    
-    // Check if URI starts with the expected prefix
-    if (strncmp(req->uri, download_prefix, prefix_len) != 0) {
-        ESP_LOGE(TAG, "URI does not start with %s. Actual URI: %s", download_prefix, req->uri);
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid URI format");
-        return ESP_FAIL;
-    }
-
     // Extraction du chemin de fichier à partir de l'URI
-    char file_path[256];
-    strlcpy(file_path, req->uri + prefix_len, sizeof(file_path));
+    const char* file_path = req->uri;
 
     // Log the extracted file path
     ESP_LOGI(TAG, "Extracted file path: %s", file_path);
@@ -359,6 +346,7 @@ esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t *req) {
 
 }  // namespace ftp_http_proxy
 }  // namespace esphome
+
 
 
 
