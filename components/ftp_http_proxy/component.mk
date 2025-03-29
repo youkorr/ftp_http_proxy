@@ -1,3 +1,0 @@
-COMPONENT_ADD_INCLUDEDIRS := .
-COMPONENT_PRIV_REQUIRES := lwip esp_http_server esp_netif
-COMPONENT_SRCDIRS := .
