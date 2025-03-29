@@ -1,43 +1,45 @@
 #include "ftp_http_proxy.h"
 #include "esphome/core/log.h"
+#include <WiFiClient.h>
+#include <WebServer.h>
+#include <ESP32FtpServer.h>
 
 namespace esphome {
 namespace ftp_http_proxy {
 
 static const char *const TAG = "ftp_http_proxy";
+static WebServer *server = nullptr;
+static FtpServer *ftp_server = nullptr;
 
 void FTPHTTPProxy::setup() {
   ESP_LOGD(TAG, "Setting up FTP to HTTP Proxy");
-  setup_ftp_();
-  setup_http_();
-}
-
-void FTPHTTPProxy::loop() {
-  if (server_) {
-    server_->handleClient();
-  }
-}
-
-void FTPHTTPProxy::setup_ftp_() {
-  ftp_server_.begin(username_.c_str(), password_.c_str());
-  ESP_LOGD(TAG, "FTP server initialized");
-}
-
-void FTPHTTPProxy::setup_http_() {
-  server_ = new WebServer(local_port_);
   
-  server_->on("/", HTTP_GET, [this]() { this->handle_root_(); });
+  // Initialize FTP server
+  ftp_server = new FtpServer();
+  ftp_server->begin(username_.c_str(), password_.c_str());
+  ESP_LOGD(TAG, "FTP server initialized");
+
+  // Initialize HTTP server
+  server = new WebServer(local_port_);
+  
+  server->on("/", HTTP_GET, [this]() { this->handle_root_(); });
   
   for (const auto &path : remote_paths_) {
     std::string url = "/" + path;
-    server_->on(url.c_str(), HTTP_GET, [this, path]() { 
-      this->handle_file_(); 
+    server->on(url.c_str(), HTTP_GET, [this, path]() {
+      this->handle_file_(path);
     });
     ESP_LOGD(TAG, "Registered HTTP route: %s", url.c_str());
   }
   
-  server_->begin();
+  server->begin();
   ESP_LOGI(TAG, "HTTP server started on port %d", local_port_);
+}
+
+void FTPHTTPProxy::loop() {
+  if (server) {
+    server->handleClient();
+  }
 }
 
 void FTPHTTPProxy::handle_root_() {
@@ -47,47 +49,40 @@ void FTPHTTPProxy::handle_root_() {
     message += "- " + String(path.c_str()) + "\n";
   }
   
-  server_->send(200, "text/plain", message);
+  server->send(200, "text/plain", message);
 }
 
-void FTPHTTPProxy::handle_file_() {
-  String path = server_->uri();
-  path = path.substring(1); // Remove leading slash
-  
+void FTPHTTPProxy::handle_file_(const std::string &path) {
   std::string content;
-  if (fetch_file_(path.c_str(), content)) {
-    server_->send(200, "text/plain", content.c_str());
-  } else {
-    server_->send(404, "text/plain", "File not found");
-  }
-}
-
-bool FTPHTTPProxy::fetch_file_(const std::string &path, std::string &content) {
-  if (!ftp_client_.connect(ftp_server_.c_str(), 21)) {
+  WiFiClient ftp_client;
+  
+  if (!ftp_client.connect(ftp_server_.c_str(), 21)) {
     ESP_LOGE(TAG, "Failed to connect to FTP server");
-    return false;
+    server->send(500, "text/plain", "FTP connection failed");
+    return;
   }
   
-  if (!ftp_server_.login(ftp_client_, username_.c_str(), password_.c_str())) {
+  if (!ftp_server->login(ftp_client, username_.c_str(), password_.c_str())) {
     ESP_LOGE(TAG, "FTP login failed");
-    ftp_client_.stop();
-    return false;
+    server->send(401, "text/plain", "FTP authentication failed");
+    ftp_client.stop();
+    return;
   }
   
-  if (!ftp_server_.download(ftp_client_, path.c_str())) {
+  if (!ftp_server->download(ftp_client, path.c_str())) {
     ESP_LOGE(TAG, "Failed to download file: %s", path.c_str());
-    ftp_client_.stop();
-    return false;
+    server->send(404, "text/plain", "File not found on FTP server");
+    ftp_client.stop();
+    return;
   }
   
-  while (ftp_client_.connected()) {
-    String line = ftp_client_.readStringUntil('\n');
-    content += line.c_str();
+  String content;
+  while (ftp_client.connected()) {
+    content += ftp_client.readString();
   }
   
-  ftp_client_.stop();
-  ESP_LOGD(TAG, "Successfully fetched file: %s", path.c_str());
-  return true;
+  ftp_client.stop();
+  server->send(200, "text/plain", content);
 }
 
 }  // namespace ftp_http_proxy
