@@ -23,7 +23,8 @@ class FTPHTTPProxy : public Component {
   
   // Méthodes pour gérer la carte SD
   bool ensure_directory(const std::string& path);
-  
+  // Ajoutez cette méthode (en plus de l'existante si nécessaire)
+  bool download_file(const std::string& remote_path, httpd_req_t* req);
   // Méthodes pour la gestion FTP
   bool connect_to_ftp();
   bool download_file(const std::string& remote_path, const std::string& local_path);
