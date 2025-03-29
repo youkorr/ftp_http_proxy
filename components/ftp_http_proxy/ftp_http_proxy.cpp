@@ -4,8 +4,6 @@
 #include <netdb.h>
 #include <cstring>
 #include <arpa/inet.h>
-#include "../ftp_server/ftp_server.h"
-#include "../sd_mmc_card/sd_mmc_card.h"
 
 static const char *TAG = "ftp_proxy";
 
@@ -73,23 +71,25 @@ bool FTPHTTPProxy::connect_to_ftp() {
 bool FTPHTTPProxy::download_file(const std::string &remote_path, httpd_req_t *req) {
   int data_sock = -1;
   bool success = false;
+  char *pasv_start = nullptr;
+  int data_port = 0;
+  int ip[4], port[2]; // Déclarations en haut pour éviter les goto
 
   if (!connect_to_ftp()) goto error;
 
-  char buffer[1024]; // Taille du tampon ajustable selon les besoins
+  char buffer[1024]; // Tampon de 1ko pour réception
 
   // Mode passif
   send(sock_, "PASV\r\n", 6, 0);
   int bytes_received = recv(sock_, buffer, sizeof(buffer) - 1, 0);
   if (bytes_received <= 0 || !strstr(buffer, "227 ")) goto error;
 
-  // Extraction des informations de connexion de données
-  char *pasv_start = strchr(buffer, '(');
+  // Extraction des données de connexion
+  pasv_start = strchr(buffer, '(');
   if (!pasv_start) goto error;
 
-  int ip[4], port[2];
   sscanf(pasv_start, "(%d,%d,%d,%d,%d,%d)", &ip[0], &ip[1], &ip[2], &ip[3], &port[0], &port[1]);
-  int data_port = port[0] * 256 + port[1];
+  data_port = port[0] * 256 + port[1];
 
   // Création du socket de données
   data_sock = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -99,7 +99,9 @@ bool FTPHTTPProxy::download_file(const std::string &remote_path, httpd_req_t *re
   memset(&data_addr, 0, sizeof(data_addr));
   data_addr.sin_family = AF_INET;
   data_addr.sin_port = htons(data_port);
-  data_addr.sin_addr.s_addr = htonl((ip[0] << 24) | (ip[1] << 16) | (ip[2] << 8) | ip[3]);
+  data_addr.sin_addr.s_addr = htonl(
+      (ip[0] << 24) | (ip[1] << 16) | (ip[2] << 8) | ip[3]
+  );
 
   if (::connect(data_sock, (struct sockaddr *)&data_addr, sizeof(data_addr)) != 0) goto error;
 
@@ -111,13 +113,13 @@ bool FTPHTTPProxy::download_file(const std::string &remote_path, httpd_req_t *re
   bytes_received = recv(sock_, buffer, sizeof(buffer) - 1, 0);
   if (bytes_received <= 0 || !strstr(buffer, "150 ")) goto error;
 
-  // Transfert des données en streaming
+  // Transfert en streaming
   while (true) {
     bytes_received = recv(data_sock, buffer, sizeof(buffer) - 1, 0);
     if (bytes_received <= 0) break;
 
     if (httpd_resp_send_chunk(req, buffer, bytes_received) != ESP_OK) {
-      ESP_LOGE(TAG, "Échec de l'envoi au client HTTP");
+      ESP_LOGE(TAG, "Échec d'envoi au client");
       break;
     }
   }
@@ -151,17 +153,17 @@ esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t *req) {
   auto *proxy = (FTPHTTPProxy *)req->user_ctx;
   std::string requested_path = req->uri;
 
+  // Suppression du premier slash
   if (!requested_path.empty() && requested_path[0] == '/') {
     requested_path.erase(0, 1);
   }
 
-  // Configuration correcte pour le transfert par lots
+  // Configuration du transfert par lots
   httpd_resp_set_type(req, "text/plain");
-  httpd_resp_set_chunked(req, true); // Correction de la fonction
+  httpd_resp_set_send_chunked(req, true); // Activation chunked
 
   for (const auto &configured_path : proxy->remote_paths_) {
     if (requested_path == configured_path) {
-      // Appel correct avec httpd_req_t*
       if (proxy->download_file(configured_path, req)) {
         return ESP_OK;
       } else {
