@@ -1,59 +1,42 @@
 #pragma once
 
+#include "esphome/components/component.h"
 #include "esphome/core/component.h"
-#include <string>
-#include <vector>
-#include <esp_http_server.h>
+#include "esphome/core/helpers.h"
+#include <WiFiClient.h>
+#include <WebServer.h>
+#include <ESP32FtpServer.h>
 
 namespace esphome {
 namespace ftp_http_proxy {
 
-// Enum pour l'état de la connexion WiFi
-enum wifi_sta_status_t {
-  WIFI_STA_DISCONNECTED = 0,
-  WIFI_STA_CONNECTED
-};
-
 class FTPHTTPProxy : public Component {
  public:
-  FTPHTTPProxy();
-  
   void setup() override;
   void loop() override;
-  void dump_config() override;
-
-  // Méthodes de configuration
-  void set_ftp_server(const std::string& server) { this->ftp_server_ = server; }
-  void set_ftp_port(uint16_t port);
-  void set_local_port(uint16_t port) { this->local_port_ = port; }
-  void set_credentials(const std::string& username, const std::string& password);
-  void add_remote_path(const std::string& path) { this->remote_paths_.push_back(path); }
+  
+  void set_ftp_server(const std::string &amp;server) { ftp_server_ = server; }
+  void set_username(const std::string &amp;username) { username_ = username; }
+  void set_password(const std::string &amp;password) { password_ = password; }
+  void add_remote_path(const std::string &amp;path) { remote_paths_.push_back(path); }
+  void set_local_port(uint16_t port) { local_port_ = port; }
 
  protected:
-  // Méthodes pour la communication FTP
-  bool connect_to_ftp();
-  bool authenticate_ftp();
-  bool download_file(const std::string& remote_path, httpd_req_t* req);
-  
-  // Méthodes utilitaires
-  std::string get_file_extension(const std::string& filename);
-  const char* get_mime_type(const std::string& extension);
-  wifi_sta_status_t wifi_sta_status();
-
-  // Handler pour les requêtes HTTP
-  static esp_err_t http_req_handler(httpd_req_t* req);
-
-  // Attributs
   std::string ftp_server_;
-  uint16_t ftp_port_;
-  uint16_t local_port_;
   std::string username_;
   std::string password_;
   std::vector<std::string> remote_paths_;
+  uint16_t local_port_{8000};
   
-  int ftp_socket_;
-  httpd_handle_t server_;
-  bool setup_complete_;  // Nouveau attribut pour suivre l'état de configuration
+  WebServer *server_{nullptr};
+  WiFiClient ftp_client_;
+  FtpServer ftp_server_;
+  
+  void handle_root_();
+  void handle_file_();
+  void setup_ftp_();
+  void setup_http_();
+  bool fetch_file_(const std::string &amp;path, std::string &amp;content);
 };
 
 }  // namespace ftp_http_proxy
