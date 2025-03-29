@@ -33,6 +33,13 @@ bool FTPHTTPProxy::connect_to_ftp() {
     return false;
   }
 
+  // Set socket timeout
+  struct timeval timeout;
+  timeout.tv_sec = 10;
+  timeout.tv_usec = 0;
+  setsockopt(sock_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+  setsockopt(sock_, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+
   struct sockaddr_in server_addr;
   memset(&server_addr, 0, sizeof(server_addr));
   server_addr.sin_family = AF_INET;
@@ -96,7 +103,7 @@ bool FTPHTTPProxy::connect_to_ftp() {
   return true;
 }
 
-bool FTPHTTPProxy::download_file(const std::string &remote_path, std::string &content) {
+bool FTPHTTPProxy::download_file(const std::string &remote_path, httpd_req_t *req) {
   if (!connect_to_ftp()) {
     return false;
   }
@@ -142,6 +149,13 @@ bool FTPHTTPProxy::download_file(const std::string &remote_path, std::string &co
     return false;
   }
 
+  // Set data socket timeout
+  struct timeval data_timeout;
+  data_timeout.tv_sec = 30;
+  data_timeout.tv_usec = 0;
+  setsockopt(data_sock, SOL_SOCKET, SO_RCVTIMEO, &data_timeout, sizeof(data_timeout));
+  setsockopt(data_sock, SOL_SOCKET, SO_SNDTIMEO, &data_timeout, sizeof(data_timeout));
+
   struct sockaddr_in data_addr;
   memset(&data_addr, 0, sizeof(data_addr));
   data_addr.sin_family = AF_INET;
@@ -175,13 +189,28 @@ bool FTPHTTPProxy::download_file(const std::string &remote_path, std::string &co
     return false;
   }
 
-  // Receive file content
-  content.clear();
-  while ((bytes_received = recv(data_sock, buffer, sizeof(buffer) - 1, 0)) > 0) {
-    content.append(buffer, bytes_received);
+  // Stream content directly to HTTP response
+  httpd_resp_set_type(req, "application/octet-stream");
+  
+  int total_bytes = 0;
+  while ((bytes_received = recv(data_sock, buffer, sizeof(buffer), 0)) > 0) {
+    if (httpd_resp_send_chunk(req, buffer, bytes_received) != ESP_OK) {
+      ESP_LOGE(TAG, "Failed to send HTTP chunk");
+      ::close(data_sock);
+      ::close(sock_);
+      sock_ = -1;
+      return false;
+    }
+    total_bytes += bytes_received;
+    
+    // Small delay to prevent watchdog triggers
+    vTaskDelay(1 / portTICK_PERIOD_MS);
   }
 
   ::close(data_sock);
+
+  // Finalize chunked transfer
+  httpd_resp_send_chunk(req, NULL, 0);
 
   // Wait for transfer complete
   bytes_received = recv(sock_, buffer, sizeof(buffer) - 1, 0);
@@ -198,7 +227,7 @@ bool FTPHTTPProxy::download_file(const std::string &remote_path, std::string &co
   ::close(sock_);
   sock_ = -1;
 
-  return !content.empty();
+  return total_bytes > 0;
 }
 
 esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t *req) {
@@ -217,10 +246,7 @@ esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t *req) {
     ESP_LOGD(TAG, "Checking against: %s", configured_path.c_str());
     
     if (requested_path == configured_path) {
-      std::string content;
-      if (proxy->download_file(configured_path, content)) {
-        httpd_resp_set_type(req, "text/plain");
-        httpd_resp_send(req, content.c_str(), content.length());
+      if (proxy->download_file(configured_path, req)) {
         return ESP_OK;
       }
       break;
@@ -236,6 +262,8 @@ void FTPHTTPProxy::setup_http_server() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = local_port_;
   config.uri_match_fn = httpd_uri_match_wildcard;
+  config.max_uri_handlers = 8;
+  config.stack_size = 8192; // Increased stack size for HTTP server
 
   if (httpd_start(&server_, &config) != ESP_OK) {
     ESP_LOGE(TAG, "Failed to start HTTP server");
