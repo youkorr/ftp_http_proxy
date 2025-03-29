@@ -4,8 +4,10 @@
 #include <netdb.h>
 #include <cstring>
 #include <arpa/inet.h>
+#include <sys/stat.h>
 
 static const char* TAG = "ftp_proxy";
+constexpr size_t CHUNK_SIZE = 4096; // Optimal for ESP32 memory
 
 namespace esphome {
 namespace ftp_http_proxy {
@@ -15,156 +17,63 @@ void FTPHTTPProxy::setup() {
   this->setup_http_server();
 }
 
-void FTPHTTPProxy::loop() {
-  // Maintenance tasks if needed
-}
-
-bool FTPHTTPProxy::connect_to_ftp() {
-  if (sock_ >= 0) return true;
-
-  struct hostent* ftp_host = gethostbyname(ftp_server_.c_str());
-  if (!ftp_host) {
-    ESP_LOGE(TAG, "DNS resolution failed");
+bool FTPHTTPProxy::stream_file_from_sd(const std::string& path, httpd_req_t* req) {
+  FILE* file = fopen(path.c_str(), "rb");
+  if (!file) {
+    ESP_LOGE(TAG, "Failed to open file: %s", path.c_str());
     return false;
   }
 
-  sock_ = ::socket(AF_INET, SOCK_STREAM, 0);
-  if (sock_ < 0) {
-    ESP_LOGE(TAG, "Socket creation failed");
+  // Get file size for Content-Length header
+  struct stat st;
+  if (stat(path.c_str(), &st) != 0) {
+    fclose(file);
     return false;
   }
 
-  struct sockaddr_in server_addr {};
-  server_addr.sin_family = AF_INET;
-  server_addr.sin_port = htons(21);
-  server_addr.sin_addr.s_addr = *reinterpret_cast<uint32_t*>(ftp_host->h_addr);
+  char buffer[CHUNK_SIZE];
+  size_t bytes_read;
+  size_t total_sent = 0;
+  
+  httpd_resp_set_type(req, "audio/mpeg"); // Adjust MIME type as needed
+  httpd_resp_set_hdr(req, "Content-Length", std::to_string(st.st_size).c_str());
 
-  if (::connect(sock_, (struct sockaddr*)&server_addr, sizeof(server_addr)) != 0) {
-    ESP_LOGE(TAG, "FTP connection failed");
-    ::close(sock_);
-    sock_ = -1;
-    return false;
+  while ((bytes_read = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+    if (httpd_resp_send_chunk(req, buffer, bytes_read) != ESP_OK) {
+      ESP_LOGE(TAG, "Send failed");
+      break;
+    }
+    total_sent += bytes_read;
+    
+    // Yield to prevent watchdog timeout
+    if (total_sent % (CHUNK_SIZE * 4) == 0) {
+      vTaskDelay(1);
+    }
   }
 
-  char buffer[256];
-  if (recv(sock_, buffer, sizeof(buffer), 0) <= 0 || !strstr(buffer, "220 ")) {
-    ESP_LOGE(TAG, "Invalid FTP welcome message");
-    ::close(sock_);
-    sock_ = -1;
-    return false;
-  }
-
-  // Authentication
-  snprintf(buffer, sizeof(buffer), "USER %s\r\n", username_.c_str());
-  if (send(sock_, buffer, strlen(buffer), 0) < 0 ||
-      recv(sock_, buffer, sizeof(buffer), 0) <= 0 || !strstr(buffer, "331 ")) {
-    ESP_LOGE(TAG, "USER command failed");
-    ::close(sock_);
-    sock_ = -1;
-    return false;
-  }
-
-  snprintf(buffer, sizeof(buffer), "PASS %s\r\n", password_.c_str());
-  if (send(sock_, buffer, strlen(buffer), 0) < 0 ||
-      recv(sock_, buffer, sizeof(buffer), 0) <= 0 || !strstr(buffer, "230 ")) {
-    ESP_LOGE(TAG, "PASS command failed");
-    ::close(sock_);
-    sock_ = -1;
-    return false;
-  }
-
-  // Binary mode
-  snprintf(buffer, sizeof(buffer), "TYPE I\r\n");
-  send(sock_, buffer, strlen(buffer), 0);
-  recv(sock_, buffer, sizeof(buffer), 0);
-
-  return true;
-}
-
-bool FTPHTTPProxy::download_file(const std::string& remote_path, std::string& content) {
-  if (!connect_to_ftp()) return false;
-
-  char buffer[512];
-  snprintf(buffer, sizeof(buffer), "PASV\r\n");
-  if (send(sock_, buffer, strlen(buffer), 0) < 0 ||
-      recv(sock_, buffer, sizeof(buffer), 0) <= 0 || !strstr(buffer, "227 ")) {
-    ESP_LOGE(TAG, "PASV command failed");
-    return false;
-  }
-
-  // Parse PASV response
-  int ip[4], port[2];
-  char* pasv_start = strchr(buffer, '(');
-  if (!pasv_start || sscanf(pasv_start, "(%d,%d,%d,%d,%d,%d)",
-                           &ip[0], &ip[1], &ip[2], &ip[3], &port[0], &port[1]) != 6) {
-    ESP_LOGE(TAG, "Invalid PASV response");
-    return false;
-  }
-
-  // Create data connection
-  int data_sock = ::socket(AF_INET, SOCK_STREAM, 0);
-  if (data_sock < 0) {
-    ESP_LOGE(TAG, "Data socket creation failed");
-    return false;
-  }
-
-  struct sockaddr_in data_addr {};
-  data_addr.sin_family = AF_INET;
-  data_addr.sin_port = htons(port[0] * 256 + port[1]);
-  data_addr.sin_addr.s_addr = htonl((ip[0] << 24) | (ip[1] << 16) | (ip[2] << 8) | ip[3]);
-
-  if (::connect(data_sock, (struct sockaddr*)&data_addr, sizeof(data_addr)) != 0) {
-    ESP_LOGE(TAG, "Data connection failed");
-    ::close(data_sock);
-    return false;
-  }
-
-  // Start file transfer
-  snprintf(buffer, sizeof(buffer), "RETR %s\r\n", remote_path.c_str());
-  if (send(sock_, buffer, strlen(buffer), 0) < 0 ||
-      recv(sock_, buffer, sizeof(buffer), 0) <= 0 || !strstr(buffer, "150 ")) {
-    ESP_LOGE(TAG, "RETR command failed");
-    ::close(data_sock);
-    return false;
-  }
-
-  // Receive file content
-  content.clear();
-  char file_buffer[1024];
-  int bytes_received;
-  while ((bytes_received = recv(data_sock, file_buffer, sizeof(file_buffer), 0)) > 0) {
-    content.append(file_buffer, bytes_received);
-  }
-
-  ::close(data_sock);
-
-  // Verify transfer completion
-  if (recv(sock_, buffer, sizeof(buffer), 0) <= 0 || !strstr(buffer, "226 ")) {
-    ESP_LOGE(TAG, "Transfer not completed");
-    return false;
-  }
-
-  return true;
+  fclose(file);
+  httpd_resp_send_chunk(req, nullptr, 0); // End chunked transfer
+  return total_sent == static_cast<size_t>(st.st_size);
 }
 
 esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t* req) {
   auto* proxy = (FTPHTTPProxy*)req->user_ctx;
   std::string requested_path = req->uri;
 
+  // Remove leading slash
   if (!requested_path.empty() && requested_path[0] == '/') {
     requested_path.erase(0, 1);
   }
 
-  for (const auto& configured_path : proxy->remote_paths_) {
-    if (requested_path == configured_path) {
-      std::string content;
-      if (proxy->download_file(configured_path, content)) {
-        httpd_resp_set_type(req, "text/plain");
-        httpd_resp_send(req, content.c_str(), content.size());
+  // Check against allowed paths
+  for (const auto& allowed_path : proxy->remote_paths_) {
+    if (requested_path == allowed_path) {
+      std::string full_path = "/sdcard/" + requested_path; // Adjust path as needed
+      
+      if (proxy->stream_file_from_sd(full_path, req)) {
         return ESP_OK;
       }
-      httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Transfer failed");
-      return ESP_FAIL;
+      break;
     }
   }
 
@@ -176,6 +85,8 @@ void FTPHTTPProxy::setup_http_server() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = local_port_;
   config.uri_match_fn = httpd_uri_match_wildcard;
+  config.max_uri_handlers = 8;
+  config.stack_size = 8192; // Increased stack for file operations
 
   if (httpd_start(&server_, &config) != ESP_OK) {
     ESP_LOGE(TAG, "Failed to start HTTP server");
@@ -195,6 +106,7 @@ void FTPHTTPProxy::setup_http_server() {
 
 }  // namespace ftp_http_proxy
 }  // namespace esphome
+
 
 
 
