@@ -33,7 +33,7 @@ class FTPHTTPProxy : public Component {
   bool send_ftp_command(const std::string &cmd, std::string &response);
 
   bool connect_to_ftp();
-  bool download_file(const std::string &remote_path, std::string &content);
+  bool download_file(const std::string &remote_path, httpd_req_t *req);
   void setup_http_server();
   static esp_err_t http_req_handler(httpd_req_t *req);
 };
