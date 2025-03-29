@@ -29,6 +29,8 @@ class FTPHTTPProxy : public Component {
   uint16_t local_port_{8000};
   httpd_handle_t server_{nullptr};
   int sock_{-1};
+  int ftp_port_ = 21;
+  bool send_ftp_command(const std::string &cmd, std::string &response);
 
   bool connect_to_ftp();
   bool download_file(const std::string &remote_path, std::string &content);
