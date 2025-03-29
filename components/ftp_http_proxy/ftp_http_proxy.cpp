@@ -155,11 +155,13 @@ esp_err_t FTPHTTPProxy::http_req_handler(httpd_req_t *req) {
     requested_path.erase(0, 1);
   }
 
+  // Configuration correcte pour le transfert par lots
   httpd_resp_set_type(req, "text/plain");
-  httpd_resp_set_send_chunked(req, true); // Activation du transfert par lots
+  httpd_resp_set_chunked(req, true); // Correction de la fonction
 
   for (const auto &configured_path : proxy->remote_paths_) {
     if (requested_path == configured_path) {
+      // Appel correct avec httpd_req_t*
       if (proxy->download_file(configured_path, req)) {
         return ESP_OK;
       } else {
