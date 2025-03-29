@@ -1,14 +1,14 @@
 #include "ftp_http_proxy.h"
 #include "esphome/core/log.h"
-#include <WiFiClient.h>
-#include <WebServer.h>
+#include <WiFi.h>
+#include <ESP8266WebServer.h>
 #include <ESP32FtpServer.h>
 
 namespace esphome {
 namespace ftp_http_proxy {
 
 static const char *const TAG = "ftp_http_proxy";
-static WebServer *server = nullptr;
+static ESP8266WebServer *server = nullptr;
 static FtpServer *ftp_server = nullptr;
 
 void FTPHTTPProxy::setup() {
@@ -20,7 +20,7 @@ void FTPHTTPProxy::setup() {
   ESP_LOGD(TAG, "FTP server initialized");
 
   // Initialize HTTP server
-  server = new WebServer(local_port_);
+  server = new ESP8266WebServer(local_port_);
   
   server->on("/", HTTP_GET, [this]() { this->handle_root_(); });
   
