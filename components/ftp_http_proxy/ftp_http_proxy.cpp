@@ -180,7 +180,7 @@ bool FTPHTTPProxy::download_file(const std::string &remote_path, std::string &co
   // Receive file content
   content.clear();
   while ((bytes_received = recv(data_sock, buffer, sizeof(buffer) - 1, 0)) > 0) {
-    content.append(buffer, bytes_received);
+    httpd_resp_send_chunk(req, buffer, bytes_received);
   }
 
   ::close(data_sock);
