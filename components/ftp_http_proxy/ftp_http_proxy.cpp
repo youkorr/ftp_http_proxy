@@ -4,7 +4,9 @@
 #include <netdb.h>
 #include <cstring>
 #include <arpa/inet.h>
+#include "ftp_server.h"
 #include "../sd_mmc_card/sd_mmc_card.h"
+
 
 static const char *TAG = "ftp_proxy";
 
