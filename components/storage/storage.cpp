@@ -811,3 +811,14 @@ bool SdImageComponent::extract_jpeg_dimensions(const std::vector<uint8_t> &data,
 
 
 
+
+
+
+
+
+
+
+
+
+
+
