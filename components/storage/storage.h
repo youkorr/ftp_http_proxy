@@ -13,25 +13,15 @@
 #include "../sd_mmc_card/sd_mmc_card.h"
 
 // Image decoder configuration for ESP-IDF
-// Tentative d'inclusion conditionnelle plus robuste
 #ifdef ESP_IDF_VERSION
-  // Vérifier si la bibliothèque JPEGDEC est disponible
-  #if __has_include(<JPEGDEC.h>)
-    #define USE_JPEGDEC
-    #include <JPEGDEC.h>
-  #else
-    #warning "JPEGDEC.h not found - JPEG decoding will be disabled"
-    #undef USE_JPEGDEC
-  #endif
+  #define USE_JPEGDEC
 #else
-  // Pour Arduino Framework
-  #if __has_include(<JPEGDEC.h>)
-    #define USE_JPEGDEC
-    #include <JPEGDEC.h>
-  #else
-    #warning "JPEGDEC.h not found - JPEG decoding will be disabled"
-    #undef USE_JPEGDEC
-  #endif
+  #define USE_JPEGDEC
+#endif
+
+// Image decoders - only JPEG for now
+#ifdef USE_JPEGDEC
+#include <JPEGDEC.h>
 #endif
 
 namespace esphome {
@@ -144,13 +134,6 @@ class SdImageComponent : public Component, public image::Image {
   // Debug info
   std::string get_debug_info() const;
 
-  // MISSING DECLARATIONS - Add these method declarations that exist in the .cpp file
-  bool is_image_format_supported(const std::string &filename) const;
-  std::vector<std::string> get_supported_formats() const;
-  void log_system_info() const;
-  size_t get_available_memory() const;
-  bool check_memory_for_image(int width, int height, ImageFormat format) const;
-
  protected:
   // Image state
   std::string file_path_;
@@ -185,14 +168,12 @@ class SdImageComponent : public Component, public image::Image {
   bool decode_image(const std::vector<uint8_t> &data);
   bool decode_jpeg_image(const std::vector<uint8_t> &jpeg_data);
   
-  // JPEG decoder callbacks - seulement si JPEGDEC est disponible
+  // JPEG decoder callbacks
 #ifdef USE_JPEGDEC
   static int jpeg_decode_callback(JPEGDRAW *draw);
   JPEGDEC *jpeg_decoder_{nullptr};
-#endif
-  
-  // JPEG decode pixel method - always declared since it has fallback implementation
   bool jpeg_decode_pixel(int x, int y, uint8_t r, uint8_t g, uint8_t b);
+#endif
 
   // Image processing
   bool allocate_image_buffer();
@@ -265,6 +246,13 @@ class SdImageUnloadAction : public Action<Ts...> {
 
 }  // namespace storage
 }  // namespace esphome
+
+
+
+
+
+
+
 
 
 
