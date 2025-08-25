@@ -25,8 +25,10 @@ namespace storage {
 static const char *const TAG = "storage";
 static const char *const TAG_IMAGE = "storage.image";
 
-// Global decoder instances for callbacks
+// Global decoder instances for callbacks - only if JPEGDEC is available
+#ifdef USE_JPEGDEC
 static SdImageComponent *current_image_component = nullptr;
+#endif
 
 // =====================================================
 // StorageComponent Implementation
@@ -132,9 +134,16 @@ void SdImageComponent::setup() {
   ESP_LOGCONFIG(TAG_IMAGE, "  Format: %s", this->format_to_string().c_str());
   ESP_LOGCONFIG(TAG_IMAGE, "  Auto load: %s", this->auto_load_ ? "YES" : "NO");
   ESP_LOGCONFIG(TAG_IMAGE, "  Storage component: %s", this->storage_component_ ? "configured" : "not configured");
-  ESP_LOGCONFIG(TAG_IMAGE, "  Decoders: JPEG available");
   
-  // CRITIQUE: Chargement automatique avec plus de vérifications
+  // Log available decoders
+#ifdef USE_JPEGDEC
+  ESP_LOGCONFIG(TAG_IMAGE, "  Decoders: JPEG available (JPEGDEC)");
+#else
+  ESP_LOGW(TAG_IMAGE, "  Decoders: JPEG NOT available (JPEGDEC library not found)");
+  ESP_LOGW(TAG_IMAGE, "  Install JPEGDEC: Add 'BitBank2/JPEGDEC@^1.3.3' to libraries");
+#endif
+  
+  // Auto load avec plus de vérifications
   if (this->auto_load_) {
     if (this->file_path_.empty()) {
       ESP_LOGW(TAG_IMAGE, "Auto-load enabled but no file path configured!");
@@ -145,6 +154,12 @@ void SdImageComponent::setup() {
       ESP_LOGW(TAG_IMAGE, "Auto-load enabled but no storage component configured!");
       return;
     }
+    
+#ifndef USE_JPEGDEC
+    ESP_LOGE(TAG_IMAGE, "Auto-load requested but no image decoders available!");
+    ESP_LOGE(TAG_IMAGE, "Cannot load JPEG images without JPEGDEC library");
+    return;
+#endif
     
     // Attendre un peu que la carte SD soit prête
     ESP_LOGI(TAG_IMAGE, "Waiting for SD card to be ready...");
@@ -162,7 +177,21 @@ void SdImageComponent::setup() {
 }
 
 void SdImageComponent::loop() {
-  // Nothing to do in loop
+  // Gestion du retry de chargement d'image
+  if (this->retry_load_ && !this->image_loaded_) {
+    uint32_t now = millis();
+    if (now - this->last_retry_attempt_ > RETRY_INTERVAL_MS) {
+      this->last_retry_attempt_ = now;
+      ESP_LOGI(TAG_IMAGE, "Retrying image load...");
+      
+      if (this->load_image()) {
+        ESP_LOGI(TAG_IMAGE, "Image loaded successfully on retry!");
+        this->retry_load_ = false;
+      } else {
+        ESP_LOGW(TAG_IMAGE, "Image load retry failed, will try again later");
+      }
+    }
+  }
 }
 
 void SdImageComponent::dump_config() {
@@ -171,6 +200,13 @@ void SdImageComponent::dump_config() {
   ESP_LOGCONFIG(TAG_IMAGE, "  Dimensions: %dx%d", this->image_width_, this->image_height_);
   ESP_LOGCONFIG(TAG_IMAGE, "  Format: %s", this->format_to_string().c_str());
   ESP_LOGCONFIG(TAG_IMAGE, "  Loaded: %s", this->image_loaded_ ? "YES" : "NO");
+  
+#ifdef USE_JPEGDEC
+  ESP_LOGCONFIG(TAG_IMAGE, "  JPEG Support: YES");
+#else
+  ESP_LOGCONFIG(TAG_IMAGE, "  JPEG Support: NO (JPEGDEC not available)");
+#endif
+
   if (this->image_loaded_) {
     ESP_LOGCONFIG(TAG_IMAGE, "  Buffer size: %zu bytes", this->image_buffer_.size());
     ESP_LOGCONFIG(TAG_IMAGE, "  Base Image - W:%d H:%d Type:%d Data:%p", 
@@ -421,7 +457,9 @@ Color SdImageComponent::get_pixel_color(int x, int y) const {
 
 // File type detection
 SdImageComponent::FileType SdImageComponent::detect_file_type(const std::vector<uint8_t> &data) const {
+#ifdef USE_JPEGDEC
   if (this->is_jpeg_data(data)) return FileType::JPEG;
+#endif
   return FileType::UNKNOWN;
 }
 
@@ -434,12 +472,20 @@ bool SdImageComponent::decode_image(const std::vector<uint8_t> &data) {
   FileType type = this->detect_file_type(data);
   
   switch (type) {
+#ifdef USE_JPEGDEC
     case FileType::JPEG:
       ESP_LOGI(TAG_IMAGE, "Decoding JPEG image");
       return this->decode_jpeg_image(data);
+#endif
       
     default:
-      ESP_LOGE(TAG_IMAGE, "Unsupported image format (only JPEG supported in this build)");
+#ifdef USE_JPEGDEC
+      ESP_LOGE(TAG_IMAGE, "Unsupported image format");
+#else
+      ESP_LOGE(TAG_IMAGE, "No image decoders available");
+      ESP_LOGE(TAG_IMAGE, "Install JPEGDEC library: Add 'BitBank2/JPEGDEC@^1.3.3' to ESPHome libraries");
+      ESP_LOGE(TAG_IMAGE, "Or add to platformio_options -> lib_deps");
+#endif
       return false;
   }
 }
@@ -447,6 +493,8 @@ bool SdImageComponent::decode_image(const std::vector<uint8_t> &data) {
 // =====================================================
 // JPEG Decoder Implementation (ESPHome style)
 // =====================================================
+
+#ifdef USE_JPEGDEC
 
 bool SdImageComponent::decode_jpeg_image(const std::vector<uint8_t> &jpeg_data) {
   ESP_LOGD(TAG_IMAGE, "Using JPEGDEC decoder");
@@ -652,6 +700,25 @@ bool SdImageComponent::jpeg_decode_pixel(int x, int y, uint8_t r, uint8_t g, uin
   return true;
 }
 
+#else // !USE_JPEGDEC
+
+// Version sans JPEGDEC - fournir des implémentations vides avec messages d'erreur
+bool SdImageComponent::decode_jpeg_image(const std::vector<uint8_t> &jpeg_data) {
+  ESP_LOGE(TAG_IMAGE, "JPEG decoding not available - JPEGDEC library not installed");
+  ESP_LOGE(TAG_IMAGE, "To enable JPEG support, add to your ESPHome configuration:");
+  ESP_LOGE(TAG_IMAGE, "esphome:");
+  ESP_LOGE(TAG_IMAGE, "  libraries:");
+  ESP_LOGE(TAG_IMAGE, "    - \"BitBank2/JPEGDEC@^1.3.3\"");
+  return false;
+}
+
+bool SdImageComponent::jpeg_decode_pixel(int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+  ESP_LOGW(TAG_IMAGE, "JPEG decoding not available");
+  return false;
+}
+
+#endif // USE_JPEGDEC
+
 // =====================================================
 // Helper Methods
 // =====================================================
@@ -725,14 +792,19 @@ std::string SdImageComponent::format_to_string() const {
 }
 
 std::string SdImageComponent::get_debug_info() const {
-  char buffer[256];
+  char buffer[512];
   snprintf(buffer, sizeof(buffer), 
-    "SdImage[%s]: %dx%d, %s, loaded=%s, size=%zu bytes",
+    "SdImage[%s]: %dx%d, %s, loaded=%s, size=%zu bytes, decoders=%s",
     this->file_path_.c_str(),
     this->image_width_, this->image_height_,
     this->format_to_string().c_str(),
     this->image_loaded_ ? "yes" : "no",
-    this->image_buffer_.size()
+    this->image_buffer_.size(),
+#ifdef USE_JPEGDEC
+    "JPEG"
+#else
+    "none"
+#endif
   );
   return std::string(buffer);
 }
@@ -748,8 +820,14 @@ void SdImageComponent::list_directory_contents(const std::string &dir_path) {
   
   struct dirent *entry;
   int file_count = 0;
+  int image_count = 0;
   
   while ((entry = readdir(dir)) != nullptr) {
+    // Skip hidden files and current/parent directory entries
+    if (entry->d_name[0] == '.') {
+      continue;
+    }
+    
     std::string full_path = dir_path;
     if (full_path.back() != '/') full_path += "/";
     full_path += entry->d_name;
@@ -757,8 +835,28 @@ void SdImageComponent::list_directory_contents(const std::string &dir_path) {
     struct stat st;
     if (stat(full_path.c_str(), &st) == 0) {
       if (S_ISREG(st.st_mode)) {
-        ESP_LOGI(TAG_IMAGE, "  📄 %s (%ld bytes)", entry->d_name, (long)st.st_size);
         file_count++;
+        
+        // Check if it's an image file
+        std::string filename = entry->d_name;
+        std::string ext = filename.substr(filename.find_last_of(".") + 1);
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+        
+        bool is_image = false;
+        if (ext == "jpg" || ext == "jpeg") {
+#ifdef USE_JPEGDEC
+          is_image = true;
+#endif
+        }
+        
+        if (is_image) {
+          image_count++;
+          ESP_LOGI(TAG_IMAGE, "  📷 %s (%ld bytes) - Supported", entry->d_name, (long)st.st_size);
+        } else if (ext == "jpg" || ext == "jpeg" || ext == "png" || ext == "bmp" || ext == "gif") {
+          ESP_LOGI(TAG_IMAGE, "  🚫 %s (%ld bytes) - Not supported", entry->d_name, (long)st.st_size);
+        } else {
+          ESP_LOGI(TAG_IMAGE, "  📄 %s (%ld bytes)", entry->d_name, (long)st.st_size);
+        }
       } else if (S_ISDIR(st.st_mode)) {
         ESP_LOGI(TAG_IMAGE, "  📁 %s/", entry->d_name);
       }
@@ -766,23 +864,125 @@ void SdImageComponent::list_directory_contents(const std::string &dir_path) {
   }
   
   closedir(dir);
-  ESP_LOGI(TAG_IMAGE, "Total files: %d", file_count);
+  ESP_LOGI(TAG_IMAGE, "Total files: %d, Supported images: %d", file_count, image_count);
+  
+#ifndef USE_JPEGDEC
+  if (file_count > 0) {
+    ESP_LOGW(TAG_IMAGE, "Some image files may not be supported without JPEGDEC library");
+  }
+#endif
 }
 
 bool SdImageComponent::extract_jpeg_dimensions(const std::vector<uint8_t> &data, int &width, int &height) const {
+  // Simple JPEG dimension extraction from SOF markers
   for (size_t i = 0; i < data.size() - 10; i++) {
     if (data[i] == 0xFF) {
       uint8_t marker = data[i + 1];
+      // Check for Start of Frame markers (SOF0, SOF1, SOF2, SOF3)
       if (marker >= 0xC0 && marker <= 0xC3) {
         if (i + 9 < data.size()) {
+          // JPEG SOF structure: FF C0 [length] [precision] [height] [width] ...
           height = (data[i + 5] << 8) | data[i + 6];
           width = (data[i + 7] << 8) | data[i + 8];
-          return true;
+          
+          // Validate dimensions
+          if (width > 0 && height > 0 && width <= 4096 && height <= 4096) {
+            return true;
+          }
         }
       }
     }
   }
   return false;
+}
+
+// =====================================================
+// Additional utility methods for better error handling
+// =====================================================
+
+bool SdImageComponent::is_image_format_supported(const std::string &filename) const {
+  std::string ext = filename.substr(filename.find_last_of(".") + 1);
+  std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+  
+#ifdef USE_JPEGDEC
+  if (ext == "jpg" || ext == "jpeg") {
+    return true;
+  }
+#endif
+  
+  return false;
+}
+
+std::vector<std::string> SdImageComponent::get_supported_formats() const {
+  std::vector<std::string> formats;
+  
+#ifdef USE_JPEGDEC
+  formats.push_back("JPEG");
+#endif
+  
+  if (formats.empty()) {
+    formats.push_back("None (install JPEGDEC library)");
+  }
+  
+  return formats;
+}
+
+void SdImageComponent::log_system_info() const {
+  ESP_LOGI(TAG_IMAGE, "=== SD Image Component System Info ===");
+  ESP_LOGI(TAG_IMAGE, "ESP32 Model: %s", CONFIG_IDF_TARGET);
+  ESP_LOGI(TAG_IMAGE, "Free heap: %u bytes", esp_get_free_heap_size());
+  
+#ifdef CONFIG_SPIRAM
+  ESP_LOGI(TAG_IMAGE, "PSRAM: Available");
+  ESP_LOGI(TAG_IMAGE, "Free PSRAM: %u bytes", heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+#else
+  ESP_LOGI(TAG_IMAGE, "PSRAM: Not available");
+#endif
+
+  auto formats = this->get_supported_formats();
+  ESP_LOGI(TAG_IMAGE, "Supported image formats:");
+  for (const auto &format : formats) {
+    ESP_LOGI(TAG_IMAGE, "  - %s", format.c_str());
+  }
+  
+  ESP_LOGI(TAG_IMAGE, "Max recommended image size: %dx%d", 
+           CONFIG_SPIRAM ? 800 : 320, CONFIG_SPIRAM ? 600 : 240);
+  ESP_LOGI(TAG_IMAGE, "=====================================");
+}
+
+// =====================================================
+// Memory management helpers
+// =====================================================
+
+size_t SdImageComponent::get_available_memory() const {
+  size_t free_heap = esp_get_free_heap_size();
+  
+#ifdef CONFIG_SPIRAM
+  size_t free_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+  return std::max(free_heap, free_psram);
+#else
+  return free_heap;
+#endif
+}
+
+bool SdImageComponent::check_memory_for_image(int width, int height, ImageFormat format) const {
+  size_t pixel_size = 2; // Default RGB565
+  switch (format) {
+    case ImageFormat::RGB565: pixel_size = 2; break;
+    case ImageFormat::RGB888: pixel_size = 3; break;
+    case ImageFormat::RGBA: pixel_size = 4; break;
+  }
+  
+  size_t required_memory = width * height * pixel_size;
+  size_t available_memory = this->get_available_memory();
+  
+  // Keep some safety margin (25% of available memory)
+  size_t safe_memory = available_memory * 3 / 4;
+  
+  ESP_LOGD(TAG_IMAGE, "Memory check: need %zu bytes, have %zu bytes (safe: %zu)", 
+           required_memory, available_memory, safe_memory);
+  
+  return required_memory <= safe_memory;
 }
 
 }  // namespace storage
