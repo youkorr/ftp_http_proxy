@@ -13,15 +13,25 @@
 #include "../sd_mmc_card/sd_mmc_card.h"
 
 // Image decoder configuration for ESP-IDF
+// Tentative d'inclusion conditionnelle plus robuste
 #ifdef ESP_IDF_VERSION
-  #define USE_JPEGDEC
+  // Vérifier si la bibliothèque JPEGDEC est disponible
+  #if __has_include(<JPEGDEC.h>)
+    #define USE_JPEGDEC
+    #include <JPEGDEC.h>
+  #else
+    #warning "JPEGDEC.h not found - JPEG decoding will be disabled"
+    #undef USE_JPEGDEC
+  #endif
 #else
-  #define USE_JPEGDEC
-#endif
-
-// Image decoders - only JPEG for now
-#ifdef USE_JPEGDEC
-#include <JPEGDEC.h>
+  // Pour Arduino Framework
+  #if __has_include(<JPEGDEC.h>)
+    #define USE_JPEGDEC
+    #include <JPEGDEC.h>
+  #else
+    #warning "JPEGDEC.h not found - JPEG decoding will be disabled"
+    #undef USE_JPEGDEC
+  #endif
 #endif
 
 namespace esphome {
@@ -168,7 +178,7 @@ class SdImageComponent : public Component, public image::Image {
   bool decode_image(const std::vector<uint8_t> &data);
   bool decode_jpeg_image(const std::vector<uint8_t> &jpeg_data);
   
-  // JPEG decoder callbacks
+  // JPEG decoder callbacks - seulement si JPEGDEC est disponible
 #ifdef USE_JPEGDEC
   static int jpeg_decode_callback(JPEGDRAW *draw);
   JPEGDEC *jpeg_decoder_{nullptr};
