@@ -144,6 +144,13 @@ class SdImageComponent : public Component, public image::Image {
   // Debug info
   std::string get_debug_info() const;
 
+  // MISSING DECLARATIONS - Add these method declarations that exist in the .cpp file
+  bool is_image_format_supported(const std::string &filename) const;
+  std::vector<std::string> get_supported_formats() const;
+  void log_system_info() const;
+  size_t get_available_memory() const;
+  bool check_memory_for_image(int width, int height, ImageFormat format) const;
+
  protected:
   // Image state
   std::string file_path_;
@@ -182,7 +189,7 @@ class SdImageComponent : public Component, public image::Image {
 #ifdef USE_JPEGDEC
   static int jpeg_decode_callback(JPEGDRAW *draw);
   JPEGDEC *jpeg_decoder_{nullptr};
-  bool jpeg_decode_pixel(int x, int y, uint8_t r, uint8_t g, uint8_t b);
+  bool jpeg_decode_pixel(int x, int y, uint8_t r, uint8_t g, uint8_t b);  // ADD THIS DECLARATION
 #endif
 
   // Image processing
