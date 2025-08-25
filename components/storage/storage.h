@@ -189,8 +189,10 @@ class SdImageComponent : public Component, public image::Image {
 #ifdef USE_JPEGDEC
   static int jpeg_decode_callback(JPEGDRAW *draw);
   JPEGDEC *jpeg_decoder_{nullptr};
-  bool jpeg_decode_pixel(int x, int y, uint8_t r, uint8_t g, uint8_t b);  // ADD THIS DECLARATION
 #endif
+  
+  // JPEG decode pixel method - always declared since it has fallback implementation
+  bool jpeg_decode_pixel(int x, int y, uint8_t r, uint8_t g, uint8_t b);
 
   // Image processing
   bool allocate_image_buffer();
@@ -263,7 +265,6 @@ class SdImageUnloadAction : public Action<Ts...> {
 
 }  // namespace storage
 }  // namespace esphome
-
 
 
 
