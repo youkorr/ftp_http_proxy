@@ -798,7 +798,30 @@ void SdImageComponent::list_directory_contents(const std::string &dir_path) {
   closedir(dir);
   ESP_LOGI(TAG_IMAGE, "Total files: %d", file_count);
 }
+std::string SdImageComponent::byte_order_to_string() const {
+  switch (this->byte_order_) {
+    case SdByteOrder::LITTLE_ENDIAN_SD:
+      return "LITTLE_ENDIAN";
+    case SdByteOrder::BIG_ENDIAN_SD:
+      return "BIG_ENDIAN";
+    default:
+      return "UNKNOWN";
+  }
+}
 
+// You should also verify that format_to_string() is implemented:
+std::string SdImageComponent::format_to_string() const {
+  switch (this->format_) {
+    case ImageFormat::RGB565:
+      return "RGB565";
+    case ImageFormat::RGB888:
+      return "RGB888";
+    case ImageFormat::RGBA:
+      return "RGBA";
+    default:
+      return "UNKNOWN";
+  }
+}
 bool SdImageComponent::extract_jpeg_dimensions(const std::vector<uint8_t> &data, int &width, int &height) const {
   for (size_t i = 0; i < data.size() - 10; i++) {
     if (data[i] == 0xFF) {
