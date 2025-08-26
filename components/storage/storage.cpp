@@ -162,6 +162,294 @@ void SdImageComponent::setup() {
   }
 }
 
+void SdImageComponent::loop() {
+  // Nothing to do in loop
+}
+
+void SdImageComponent::dump_config() {
+  ESP_LOGCONFIG(TAG_IMAGE, "SD Image Component:");
+  ESP_LOGCONFIG(TAG_IMAGE, "  File: %s", this->file_path_.c_str());
+  ESP_LOGCONFIG(TAG_IMAGE, "  Dimensions: %dx%d", this->image_width_, this->image_height_);
+  ESP_LOGCONFIG(TAG_IMAGE, "  Format: %s", this->format_to_string().c_str());
+  ESP_LOGCONFIG(TAG_IMAGE, "  Byte order: %s", this->byte_order_to_string().c_str());
+  ESP_LOGCONFIG(TAG_IMAGE, "  Loaded: %s", this->image_loaded_ ? "YES" : "NO");
+  if (this->image_loaded_) {
+    ESP_LOGCONFIG(TAG_IMAGE, "  Buffer size: %zu bytes", this->image_buffer_.size());
+    ESP_LOGCONFIG(TAG_IMAGE, "  Base Image - W:%d H:%d Type:%d Data:%p", 
+                  this->width_, this->height_, this->type_, this->data_start_);
+  }
+}
+
+// Compatibility methods for YAML configuration
+void SdImageComponent::set_output_format_string(const std::string &format) {
+  if (format == "RGB565") {
+    this->format_ = ImageFormat::RGB565;
+  } else if (format == "RGB888") {
+    this->format_ = ImageFormat::RGB888;
+  } else if (format == "RGBA") {
+    this->format_ = ImageFormat::RGBA;
+  } else {
+    ESP_LOGW(TAG_IMAGE, "Unknown format: %s, using RGB565", format.c_str());
+    this->format_ = ImageFormat::RGB565;
+  }
+}
+
+void SdImageComponent::set_byte_order_string(const std::string &byte_order) {
+  if (byte_order == "BIG_ENDIAN") {
+    this->byte_order_ = SdByteOrder::BIG_ENDIAN_SD;
+    ESP_LOGD(TAG_IMAGE, "Byte order set to: BIG_ENDIAN");
+  } else if (byte_order == "LITTLE_ENDIAN") {
+    this->byte_order_ = SdByteOrder::LITTLE_ENDIAN_SD;
+    ESP_LOGD(TAG_IMAGE, "Byte order set to: LITTLE_ENDIAN");
+  } else {
+    ESP_LOGW(TAG_IMAGE, "Unknown byte order: %s, using LITTLE_ENDIAN", byte_order.c_str());
+    this->byte_order_ = SdByteOrder::LITTLE_ENDIAN_SD;
+  }
+}
+
+// Byte order utility methods
+uint16_t SdImageComponent::read_uint16(const uint8_t* data) const {
+  if (this->byte_order_ == SdByteOrder::BIG_ENDIAN_SD) {
+    return (data[0] << 8) | data[1];  // Big endian
+  } else {
+    return data[0] | (data[1] << 8);  // Little endian
+  }
+}
+
+void SdImageComponent::write_uint16(uint8_t* data, uint16_t value) const {
+  if (this->byte_order_ == SdByteOrder::BIG_ENDIAN_SD) {
+    data[0] = (value >> 8) & 0xFF;  // Big endian
+    data[1] = value & 0xFF;
+  } else {
+    data[0] = value & 0xFF;         // Little endian
+    data[1] = (value >> 8) & 0xFF;
+  }
+}
+
+// Implementation de la méthode draw() selon le code source ESPHome
+void SdImageComponent::draw(int x, int y, display::Display *display, Color color_on, Color color_off) {
+  if (!this->image_loaded_ || this->image_buffer_.empty()) {
+    ESP_LOGW(TAG_IMAGE, "Cannot draw: image not loaded");
+    return;
+  }
+  
+  ESP_LOGD(TAG_IMAGE, "Drawing SD image %dx%d at position %d,%d (Base: W:%d H:%d Data:%p)", 
+           this->get_current_width(), this->get_current_height(), x, y,
+           this->width_, this->height_, this->data_start_);
+  
+  // Si les données de base sont correctes, utiliser la méthode optimisée d'ESPHome
+  if (this->data_start_ && this->width_ > 0 && this->height_ > 0) {
+    ESP_LOGD(TAG_IMAGE, "Using ESPHome base image draw method");
+    // Appeler la méthode de base qui gère le clipping et l'optimisation
+    image::Image::draw(x, y, display, color_on, color_off);
+  } else {
+    ESP_LOGD(TAG_IMAGE, "Using fallback pixel-by-pixel drawing");
+    // Fallback: dessiner pixel par pixel
+    this->draw_pixels_directly(x, y, display, color_on, color_off);
+  }
+}
+
+// Loading methods
+bool SdImageComponent::load_image() {
+  return this->load_image_from_path(this->file_path_);
+}
+
+bool SdImageComponent::load_image_from_path(const std::string &path) {
+  ESP_LOGI(TAG_IMAGE, "Loading image from: %s", path.c_str());
+  
+  if (!this->storage_component_) {
+    ESP_LOGE(TAG_IMAGE, "Storage component not available");
+    return false;
+  }
+  
+  // Unload previous image
+  this->unload_image();
+  
+  // Check file existence
+  if (!this->storage_component_->file_exists_direct(path)) {
+    ESP_LOGE(TAG_IMAGE, "Image file not found: %s", path.c_str());
+    
+    // List directory for debugging
+    std::string dir_path = path.substr(0, path.find_last_of("/"));
+    if (dir_path.empty()) dir_path = "/";
+    this->list_directory_contents(dir_path);
+    
+    return false;
+  }
+  
+  // Read file data
+  std::vector<uint8_t> file_data = this->storage_component_->read_file_direct(path);
+  if (file_data.empty()) {
+    ESP_LOGE(TAG_IMAGE, "Failed to read image file: %s", path.c_str());
+    return false;
+  }
+  
+  ESP_LOGI(TAG_IMAGE, "Read %zu bytes from file", file_data.size());
+  
+  // Show first few bytes for debugging
+  if (file_data.size() >= 16) {
+    ESP_LOGI(TAG_IMAGE, "First 16 bytes: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X", 
+             file_data[0], file_data[1], file_data[2], file_data[3],
+             file_data[4], file_data[5], file_data[6], file_data[7],
+             file_data[8], file_data[9], file_data[10], file_data[11],
+             file_data[12], file_data[13], file_data[14], file_data[15]);
+  }
+  
+  // Decode image
+  if (!this->decode_image(file_data)) {
+    ESP_LOGE(TAG_IMAGE, "Failed to decode image: %s", path.c_str());
+    return false;
+  }
+  
+  this->file_path_ = path;
+  this->image_loaded_ = true;
+  
+  // Finaliser le chargement en mettant à jour les propriétés de base
+  this->finalize_image_load();
+  
+  ESP_LOGI(TAG_IMAGE, "Image loaded successfully: %dx%d, %zu bytes", 
+           this->image_width_, this->image_height_, this->image_buffer_.size());
+  
+  return true;
+}
+
+void SdImageComponent::unload_image() {
+  this->image_buffer_.clear();
+  this->image_buffer_.shrink_to_fit();
+  this->image_loaded_ = false;
+  this->image_width_ = 0;
+  this->image_height_ = 0;
+  
+  // Réinitialiser aussi les propriétés de la classe de base
+  this->width_ = 0;
+  this->height_ = 0;
+  this->data_start_ = nullptr;
+  this->bpp_ = 0;
+}
+
+bool SdImageComponent::reload_image() {
+  std::string path = this->file_path_;
+  this->unload_image();
+  return this->load_image_from_path(path);
+}
+
+// Implémentation de finalize_image_load()
+void SdImageComponent::finalize_image_load() {
+  if (this->image_loaded_) {
+    this->update_base_image_properties();
+    ESP_LOGI(TAG_IMAGE, "Image properties updated - W:%d H:%d Type:%d Data:%p BPP:%d", 
+             this->width_, this->height_, this->type_, this->data_start_, this->bpp_);
+  }
+}
+
+// Mise à jour des propriétés de la classe de base selon le code source ESPHome
+void SdImageComponent::update_base_image_properties() {
+  // Mettre à jour les membres de la classe de base
+  this->width_ = this->get_current_width();
+  this->height_ = this->get_current_height();
+  this->type_ = this->get_esphome_image_type();
+  
+  if (!this->image_buffer_.empty()) {
+    this->data_start_ = this->image_buffer_.data();
+    
+    // Calculer bpp selon le code source ESPHome
+    switch (this->type_) {
+      case image::IMAGE_TYPE_BINARY:
+        this->bpp_ = 1;
+        break;
+      case image::IMAGE_TYPE_GRAYSCALE:
+        this->bpp_ = 8;
+        break;
+      case image::IMAGE_TYPE_RGB565:
+        this->bpp_ = 16;
+        break;
+      case image::IMAGE_TYPE_RGB:
+        this->bpp_ = 24;
+        break;
+      default:
+        this->bpp_ = 16;
+        break;
+    }
+  } else {
+    this->data_start_ = nullptr;
+    this->bpp_ = 0;
+  }
+}
+
+int SdImageComponent::get_current_width() const {
+  return this->resize_width_ > 0 ? this->resize_width_ : this->image_width_;
+}
+
+int SdImageComponent::get_current_height() const {
+  return this->resize_height_ > 0 ? this->resize_height_ : this->image_height_;
+}
+
+image::ImageType SdImageComponent::get_esphome_image_type() const {
+  switch (this->format_) {
+    case ImageFormat::RGB565: return image::IMAGE_TYPE_RGB565;
+    case ImageFormat::RGB888: return image::IMAGE_TYPE_RGB;
+    case ImageFormat::RGBA: return image::IMAGE_TYPE_RGB; // ESPHome n'a pas de RGBA natif
+    default: return image::IMAGE_TYPE_RGB565;
+  }
+}
+
+void SdImageComponent::draw_pixels_directly(int x, int y, display::Display *display, Color color_on, Color color_off) {
+  // Méthode de fallback pour dessiner directement
+  ESP_LOGD(TAG_IMAGE, "Drawing %dx%d pixels directly", this->get_current_width(), this->get_current_height());
+  
+  for (int img_y = 0; img_y < this->get_current_height(); img_y++) {
+    for (int img_x = 0; img_x < this->get_current_width(); img_x++) {
+      Color pixel_color = this->get_pixel_color(img_x, img_y);
+      display->draw_pixel_at(x + img_x, y + img_y, pixel_color);
+    }
+    
+    // Yield périodique pour éviter le watchdog
+    if (img_y % 32 == 0) {
+      App.feed_wdt();
+      yield();
+    }
+  }
+}
+
+void SdImageComponent::draw_pixel_at(display::Display *display, int screen_x, int screen_y, int img_x, int img_y) {
+  Color pixel_color = this->get_pixel_color(img_x, img_y);
+  display->draw_pixel_at(screen_x, screen_y, pixel_color);
+}
+
+Color SdImageComponent::get_pixel_color(int x, int y) const {
+  if (x < 0 || x >= this->get_current_width() || y < 0 || y >= this->get_current_height()) {
+    return Color::BLACK;
+  }
+  
+  size_t offset = (y * this->get_current_width() + x) * this->get_pixel_size();
+  
+  if (offset + this->get_pixel_size() > this->image_buffer_.size()) {
+    return Color::BLACK;
+  }
+  
+  switch (this->format_) {
+    case ImageFormat::RGB565: {
+      // Use byte order aware reading
+      uint16_t rgb565 = this->read_uint16(&this->image_buffer_[offset]);
+      uint8_t r = ((rgb565 >> 11) & 0x1F) << 3;
+      uint8_t g = ((rgb565 >> 5) & 0x3F) << 2;
+      uint8_t b = (rgb565 & 0x1F) << 3;
+      return Color(r, g, b);
+    }
+    case ImageFormat::RGB888:
+      return Color(this->image_buffer_[offset], 
+                  this->image_buffer_[offset + 1], 
+                  this->image_buffer_[offset + 2]);
+    case ImageFormat::RGBA:
+      return Color(this->image_buffer_[offset], 
+                  this->image_buffer_[offset + 1], 
+                  this->image_buffer_[offset + 2], 
+                  this->image_buffer_[offset + 3]);
+    default:
+      return Color::BLACK;
+  }
+}
+
 // File type detection
 SdImageComponent::FileType SdImageComponent::detect_file_type(const std::vector<uint8_t> &data) const {
   if (this->is_jpeg_data(data)) return FileType::JPEG;
