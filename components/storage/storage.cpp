@@ -170,11 +170,6 @@ void SdImageComponent::dump_config() {
   ESP_LOGCONFIG(TAG_IMAGE, "  File: %s", this->file_path_.c_str());
   ESP_LOGCONFIG(TAG_IMAGE, "  Dimensions: %dx%d", this->image_width_, this->image_height_);
   ESP_LOGCONFIG(TAG_IMAGE, "  Format: %s", this->format_to_string().c_str());
-  
-  // --- ajout endian ---
-  ESP_LOGCONFIG(TAG_IMAGE, "  Byte order: %s",
-                (this->byte_order_ == SdByteOrder::LITTLE_ENDIAN_SD ? "LITTLE_ENDIAN" : "BIG_ENDIAN"));
-
   ESP_LOGCONFIG(TAG_IMAGE, "  Loaded: %s", this->image_loaded_ ? "YES" : "NO");
   if (this->image_loaded_) {
     ESP_LOGCONFIG(TAG_IMAGE, "  Buffer size: %zu bytes", this->image_buffer_.size());
@@ -182,7 +177,6 @@ void SdImageComponent::dump_config() {
                   this->width_, this->height_, this->type_, this->data_start_);
   }
 }
-
 
 // Compatibility methods for YAML configuration
 void SdImageComponent::set_output_format_string(const std::string &format) {
@@ -793,6 +787,25 @@ bool SdImageComponent::extract_jpeg_dimensions(const std::vector<uint8_t> &data,
 
 }  // namespace storage
 }  // namespace esphome
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
