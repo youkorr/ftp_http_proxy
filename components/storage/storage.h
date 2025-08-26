@@ -103,6 +103,7 @@ class SdImageComponent : public Component, public image::Image {
   }
   void set_format(ImageFormat format) { this->format_ = format; }
   void set_auto_load(bool auto_load) { this->auto_load_ = auto_load; }
+  void set_byte_order(SdByteOrder byte_order) { this->byte_order_ = byte_order; }
   
   // Compatibility methods for YAML configuration
   void set_output_format_string(const std::string &format);
@@ -148,6 +149,7 @@ class SdImageComponent : public Component, public image::Image {
   int resize_width_{0};
   int resize_height_{0};
   ImageFormat format_{ImageFormat::RGB565};
+  SdByteOrder byte_order_{SdByteOrder::LITTLE_ENDIAN_SD};
 
  private:
   // Retry logic for image loading
@@ -192,12 +194,17 @@ class SdImageComponent : public Component, public image::Image {
   void draw_pixel_at(display::Display *display, int screen_x, int screen_y, int img_x, int img_y);
   Color get_pixel_color(int x, int y) const;
   
+  // Byte order utility methods
+  uint16_t read_uint16(const uint8_t* data) const;
+  void write_uint16(uint8_t* data, uint16_t value) const;
+  
   // Utility methods
   void list_directory_contents(const std::string &dir_path);
   bool extract_jpeg_dimensions(const std::vector<uint8_t> &data, int &width, int &height) const;
   
   // Format helpers
   std::string format_to_string() const;
+  std::string byte_order_to_string() const;
 
 };
 
