@@ -745,14 +745,6 @@ size_t SdImageComponent::get_buffer_size() const {
   return this->image_width_ * this->image_height_ * this->get_pixel_size();
 }
 
-std::string SdImageComponent::format_to_string() const {
-  switch (this->format_) {
-    case ImageFormat::RGB565: return "RGB565";
-    case ImageFormat::RGB888: return "RGB888";
-    case ImageFormat::RGBA: return "RGBA";
-    default: return "Unknown";
-  }
-}
 
 std::string SdImageComponent::get_debug_info() const {
   char buffer[256];
