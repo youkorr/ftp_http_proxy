@@ -30,10 +30,6 @@ StorageComponent = storage_ns.class_("StorageComponent", cg.Component)
 SdImageComponent = storage_ns.class_("SdImageComponent", cg.Component, image.Image_)
 SdMmc = sd_mmc_card_ns.class_("SdMmc")
 
-# Enums - Create C++ enums for type safety
-ImageFormat = storage_ns.enum("ImageFormat")
-SdByteOrder = storage_ns.enum("SdByteOrder")
-
 # Configuration keys
 CONF_STORAGE_COMPONENT = "storage_component"
 CONF_ROOT_PATH = "root_path"
@@ -44,16 +40,16 @@ CONF_SD_IMAGES = "sd_images"
 CONF_FILE_PATH = "file_path"
 CONF_AUTO_LOAD = "auto_load"  # Uniquement pour sd_images, pas pour storage
 
-# String mappings for configuration validation
+# FIXED: Use simple string mappings instead of enums to avoid compilation issues
 CONF_OUTPUT_IMAGE_FORMATS = {
-    "RGB565": ImageFormat.RGB565,
-    "RGB888": ImageFormat.RGB888, 
-    "RGBA": ImageFormat.RGBA,
+    "RGB565": "RGB565",
+    "RGB888": "RGB888", 
+    "RGBA": "RGBA",
 }
 
 CONF_BYTE_ORDERS = {
-    "LITTLE_ENDIAN": SdByteOrder.LITTLE_ENDIAN_SD,
-    "BIG_ENDIAN": SdByteOrder.BIG_ENDIAN_SD,
+    "LITTLE_ENDIAN": "LITTLE_ENDIAN",
+    "BIG_ENDIAN": "BIG_ENDIAN",
 }
 
 # Actions - Using standard ESPHome automation framework
@@ -151,16 +147,15 @@ async def setup_sd_image_component(config, parent_storage):
     # Lier au composant storage parent
     cg.add(var.set_storage_component(parent_storage))
     
-    # Configuration de base
+    # FIXED: Pass strings directly instead of enum values
     cg.add(var.set_file_path(config[CONF_FILE_PATH]))
     
-    # Configuration du format d'image avec enum C++
-    format_enum = CONF_OUTPUT_IMAGE_FORMATS[config[CONF_OUTPUT_FORMAT]]
-    cg.add(var.set_format(format_enum))
+    # Get the string values from the config (they're already strings due to our mapping)
+    output_format_str = config[CONF_OUTPUT_FORMAT]  # This is already a string like "RGB565"
+    byte_order_str = config[CONF_BYTE_ORDER]        # This is already a string like "LITTLE_ENDIAN"
     
-    # Configuration de l'ordre des octets avec enum C++
-    byte_order_enum = CONF_BYTE_ORDERS[config[CONF_BYTE_ORDER]]
-    cg.add(var.set_byte_order(byte_order_enum))
+    cg.add(var.set_output_format_string(output_format_str))
+    cg.add(var.set_byte_order_string(byte_order_str))
     
     # Configuration auto_load - SEULEMENT pour les sd_images
     cg.add(var.set_auto_load(config[CONF_AUTO_LOAD]))
@@ -176,12 +171,11 @@ class SdImageEncoder(image.ImageEncoder):
     
     allow_config = {image.CONF_ALPHA_CHANNEL, image.CONF_CHROMA_KEY, image.CONF_OPAQUE}
 
-    def __init__(self, width, height, transparency, dither, invert_alpha, storage_component, file_path, output_format="RGB565", byte_order="LITTLE_ENDIAN"):
+    def __init__(self, width, height, transparency, dither, invert_alpha, storage_component, file_path, output_format="RGB565"):
         super().__init__(width, height, transparency, dither, invert_alpha)
         self.storage_component = storage_component
         self.file_path = file_path
         self.output_format = output_format
-        self.byte_order = byte_order
         
     @staticmethod
     def validate(value):
@@ -240,14 +234,12 @@ async def image_to_code_hook(config):
             storage = await cg.get_variable(config[CONF_STORAGE_COMPONENT])
             cg.add(var.set_storage_component(storage))
         
-        # Configuration avec enums C++
-        format_enum = CONF_OUTPUT_IMAGE_FORMATS.get(config.get(CONF_OUTPUT_FORMAT, "RGB565"))
-        byte_order_enum = CONF_BYTE_ORDERS.get(config.get(CONF_BYTE_ORDER, "LITTLE_ENDIAN"))
+        # Use string methods with proper string values
+        format_str = config.get(CONF_OUTPUT_FORMAT, "RGB565")
+        byte_order_str = config.get(CONF_BYTE_ORDER, "LITTLE_ENDIAN")
         
-        if format_enum:
-            cg.add(var.set_format(format_enum))
-        if byte_order_enum:
-            cg.add(var.set_byte_order(byte_order_enum))
+        cg.add(var.set_output_format_string(format_str))
+        cg.add(var.set_byte_order_string(byte_order_str))
         
         # Configuration auto_load dans le hook aussi - SEULEMENT si présent
         auto_load = config.get(CONF_AUTO_LOAD, True)
